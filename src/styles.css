@@ -103,7 +103,10 @@ h2 {
 }
 
 .settings-panel,
+.device-card,
+.admin-panel,
 .usage-panel,
+.history-panel,
 .result-panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -118,6 +121,59 @@ h2 {
   align-items: end;
   padding: 14px;
   margin-bottom: 16px;
+}
+
+.device-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.device-card div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.device-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.device-card strong {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.admin-panel {
+  padding: 0 14px 14px;
+  margin-bottom: 16px;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.admin-actions {
+  display: grid;
+  margin-top: 12px;
+}
+
+.text-button {
+  height: 40px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 800;
+  padding: 0 8px;
 }
 
 .field {
@@ -343,6 +399,12 @@ button:focus-visible {
   padding: 18px 16px 4px;
 }
 
+.section-heading.compact {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 16px 0 12px;
+}
+
 .section-heading p:last-child {
   margin: 0;
   color: var(--muted);
@@ -378,6 +440,63 @@ button:focus-visible {
   line-height: 1.45;
 }
 
+.history-panel {
+  margin-top: 18px;
+  padding: 0 14px 14px;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px;
+}
+
+.history-item div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-item strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item span {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item em {
+  color: var(--primary);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.empty-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 @media (max-width: 520px) {
   .app-shell {
     padding-left: 16px;
@@ -385,6 +504,7 @@ button:focus-visible {
   }
 
   .settings-panel,
+  .admin-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }

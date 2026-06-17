@@ -13,6 +13,8 @@ Phone-installable receipt capture app for uploading OCR results into a business 
 - Uploads the confirmed receipt data to the dashboard
 - Queues failed uploads locally and retries later
 - Installs as a PWA on mobile browsers
+- Keeps recent upload history on the device
+- Lets an admin configure API settings and device owner once per phone
 
 ## Run locally
 
@@ -32,7 +34,7 @@ For phone testing on the same network, serve it from the machine LAN address and
 
 ## API settings
 
-Open the app and set the dashboard API base URL, for example:
+Open Admin Settings in the app and set the dashboard API base URL, for example:
 
 ```text
 https://PROJECT_REF.supabase.co/functions/v1
@@ -71,6 +73,14 @@ The phone app settings should use:
 API: https://PROJECT_REF.supabase.co/functions/v1
 연동 키: the same MOBILE_RECEIPT_API_KEY
 ```
+
+Each phone should also be registered with a device owner in Admin Settings. Every upload sends:
+
+- `deviceId`
+- `deviceOwner`
+- `submittedBy`
+
+The dashboard Edge Function stores this information in the expense memo and review owner label.
 
 ## Deployment
 

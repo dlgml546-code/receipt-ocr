@@ -24,6 +24,8 @@ Fields:
 - `receipt`: image file
 - `source`: `receipt-ocr-pwa`
 - `workflow`: `expense_approval`
+- `deviceId`: stable local device identifier
+- `deviceOwner`: admin-registered phone owner
 - `capturedAt`: ISO timestamp
 
 Example response:
@@ -75,6 +77,9 @@ Example request:
   "attachmentId": "att_123",
   "source": "receipt-ocr-pwa",
   "workflow": "expense_approval",
+  "deviceId": "device-uuid",
+  "deviceOwner": "Hong Gil Dong",
+  "submittedBy": "Hong Gil Dong",
   "batchIndex": 1,
   "batchTotal": 3,
   "capturedAt": "2026-06-17T02:00:00.000Z",

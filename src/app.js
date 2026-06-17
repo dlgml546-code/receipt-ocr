@@ -1,7 +1,10 @@
 const STORAGE_KEYS = {
   apiBase: "receiptOcr.apiBase",
   apiKey: "receiptOcr.apiKey",
-  queue: "receiptOcr.pendingUploads"
+  deviceId: "receiptOcr.deviceId",
+  deviceOwner: "receiptOcr.deviceOwner",
+  queue: "receiptOcr.pendingUploads",
+  history: "receiptOcr.uploadHistory"
 };
 
 const state = {
@@ -16,6 +19,12 @@ const state = {
 const elements = {
   apiBaseInput: document.querySelector("#apiBaseInput"),
   apiKeyInput: document.querySelector("#apiKeyInput"),
+  deviceOwnerInput: document.querySelector("#deviceOwnerInput"),
+  deviceIdInput: document.querySelector("#deviceIdInput"),
+  deviceOwnerText: document.querySelector("#deviceOwnerText"),
+  openAdminButton: document.querySelector("#openAdminButton"),
+  closeAdminButton: document.querySelector("#closeAdminButton"),
+  adminPanel: document.querySelector("#adminPanel"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   cameraInput: document.querySelector("#cameraInput"),
   albumInput: document.querySelector("#albumInput"),
@@ -35,14 +44,18 @@ const elements = {
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
   usageInput: document.querySelector("#usageInput"),
-  rawTextInput: document.querySelector("#rawTextInput")
+  rawTextInput: document.querySelector("#rawTextInput"),
+  historyList: document.querySelector("#historyList"),
+  clearHistoryButton: document.querySelector("#clearHistoryButton")
 };
 
 init();
 
 function init() {
-  elements.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || "";
-  elements.apiKeyInput.value = localStorage.getItem(STORAGE_KEYS.apiKey) || "";
+  ensureDeviceId();
+  loadSettingsIntoForm();
+  elements.openAdminButton.addEventListener("click", () => setAdminPanelOpen(true));
+  elements.closeAdminButton.addEventListener("click", () => setAdminPanelOpen(false));
   elements.saveSettingsButton.addEventListener("click", saveSettings);
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
@@ -52,20 +65,52 @@ function init() {
   elements.retryButton.addEventListener("click", retryQueuedUploads);
   elements.form.addEventListener("input", updateActions);
   elements.usageInput.addEventListener("input", updateActions);
+  elements.clearHistoryButton.addEventListener("click", clearHistory);
 
   registerServiceWorker();
+  updateDeviceCard();
   updateQueueCount();
+  renderHistory();
   updateActions();
+}
+
+function ensureDeviceId() {
+  if (localStorage.getItem(STORAGE_KEYS.deviceId)) {
+    return;
+  }
+
+  const id = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  localStorage.setItem(STORAGE_KEYS.deviceId, id);
+}
+
+function loadSettingsIntoForm() {
+  elements.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || "";
+  elements.apiKeyInput.value = localStorage.getItem(STORAGE_KEYS.apiKey) || "";
+  elements.deviceOwnerInput.value = localStorage.getItem(STORAGE_KEYS.deviceOwner) || "";
+  elements.deviceIdInput.value = getDeviceId();
+}
+
+function setAdminPanelOpen(isOpen) {
+  elements.adminPanel.hidden = !isOpen;
+  if (isOpen) {
+    loadSettingsIntoForm();
+    elements.deviceOwnerInput.focus();
+  }
 }
 
 function saveSettings() {
   const apiBase = normalizeApiBase(elements.apiBaseInput.value);
   const apiKey = elements.apiKeyInput.value.trim();
+  const deviceOwner = elements.deviceOwnerInput.value.trim();
+
   elements.apiBaseInput.value = apiBase;
   localStorage.setItem(STORAGE_KEYS.apiBase, apiBase);
   localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
-  setStatus(apiBase && apiKey ? "연동 설정이 저장되었습니다." : "API 주소와 연동 키를 확인해 주세요.");
+  localStorage.setItem(STORAGE_KEYS.deviceOwner, deviceOwner);
+
+  updateDeviceCard();
   updateActions();
+  setStatus(apiBase && apiKey && deviceOwner ? "관리자 설정이 저장되었습니다." : "API, 연동 키, 기기 소유자를 모두 입력해 주세요.");
 }
 
 async function handleFileSelection(event) {
@@ -84,6 +129,10 @@ async function handleFileSelection(event) {
 
   await loadCurrentReceipt();
   event.target.value = "";
+
+  if (isConfigured()) {
+    await runOcr();
+  }
 }
 
 async function loadCurrentReceipt(options = {}) {
@@ -118,7 +167,7 @@ async function loadCurrentReceipt(options = {}) {
   }
 
   updateBatchText();
-  setStatus(state.items.length > 1 ? "여러 장이 선택되었습니다. 한 장씩 분석 후 업로드해 주세요." : "영수증이 선택되었습니다.");
+  setStatus(state.items.length > 1 ? "여러 장이 선택되었습니다. 한 장씩 확인해 주세요." : "영수증이 선택되었습니다.");
   updateActions();
 }
 
@@ -134,16 +183,15 @@ async function rotateCurrentReceipt() {
 }
 
 async function runOcr() {
-  const apiBase = getApiBase();
-  const apiKey = getApiKey();
   if (!state.selectedFile) {
     setStatus("먼저 영수증을 촬영하거나 앨범에서 선택해 주세요.");
     updateActions();
     return;
   }
 
-  if (!apiBase || !apiKey) {
-    setStatus("분석하려면 경영관리 대시보드 API 주소와 연동 키를 저장해야 합니다.");
+  if (!isConfigured()) {
+    setStatus("관리자가 이 기기의 연동 설정을 먼저 저장해야 합니다.");
+    setAdminPanelOpen(true);
     updateActions();
     return;
   }
@@ -156,9 +204,11 @@ async function runOcr() {
     formData.append("receipt", state.selectedFile);
     formData.append("source", "receipt-ocr-pwa");
     formData.append("workflow", "expense_approval");
+    formData.append("deviceId", getDeviceId());
+    formData.append("deviceOwner", getDeviceOwner());
     formData.append("capturedAt", state.capturedAt);
 
-    const response = await fetch(`${apiBase}/receipts/ocr`, {
+    const response = await fetch(`${getApiBase()}/receipts/ocr`, {
       method: "POST",
       headers: buildAuthHeaders(),
       body: formData
@@ -175,18 +225,18 @@ async function runOcr() {
     setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
   } catch (error) {
     console.error(error);
-    setStatus("분석에 실패했습니다. API 주소와 대시보드 OCR 엔드포인트를 확인해 주세요.");
+    setStatus("분석에 실패했습니다. 관리자 설정과 OCR 함수를 확인해 주세요.");
   } finally {
     updateActions();
   }
 }
 
 async function uploadCurrentReceipt() {
-  const apiBase = getApiBase();
   const receipt = buildReceiptPayload();
 
-  if (!apiBase) {
-    setStatus("업로드하려면 경영관리 대시보드 API 주소를 저장해야 합니다.");
+  if (!isConfigured()) {
+    setStatus("관리자가 이 기기의 연동 설정을 먼저 저장해야 합니다.");
+    setAdminPanelOpen(true);
     updateActions();
     return;
   }
@@ -201,14 +251,17 @@ async function uploadCurrentReceipt() {
   setStatus("업로드 중입니다.");
 
   try {
-    await uploadReceipt(apiBase, receipt);
+    const result = await uploadReceipt(getApiBase(), receipt);
+    addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
     await advanceAfterUpload();
   } catch (error) {
     console.error(error);
     queueReceipt(receipt);
+    addHistory({ ...receipt, remoteId: null, uploadStatus: "queued" });
     setStatus("업로드가 실패해 대기열에 저장되었습니다.");
   } finally {
     updateQueueCount();
+    renderHistory();
     updateActions();
   }
 }
@@ -218,6 +271,9 @@ async function advanceAfterUpload() {
     state.currentIndex += 1;
     await loadCurrentReceipt();
     setStatus("업로드되었습니다. 다음 영수증을 확인해 주세요.");
+    if (isConfigured()) {
+      await runOcr();
+    }
     return;
   }
 
@@ -226,11 +282,10 @@ async function advanceAfterUpload() {
 }
 
 async function retryQueuedUploads() {
-  const apiBase = getApiBase();
   const queue = getQueue();
 
-  if (!apiBase || queue.length === 0) {
-    setStatus(queue.length === 0 ? "대기 항목이 없습니다." : "API 주소를 확인해 주세요.");
+  if (!isConfigured() || queue.length === 0) {
+    setStatus(queue.length === 0 ? "대기 항목이 없습니다." : "관리자 설정을 확인해 주세요.");
     return;
   }
 
@@ -239,7 +294,8 @@ async function retryQueuedUploads() {
   const remaining = [];
   for (const receipt of queue) {
     try {
-      await uploadReceipt(apiBase, receipt);
+      const result = await uploadReceipt(getApiBase(), receipt);
+      addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
     } catch (error) {
       console.error(error);
       remaining.push(receipt);
@@ -248,6 +304,7 @@ async function retryQueuedUploads() {
 
   setQueue(remaining);
   updateQueueCount();
+  renderHistory();
   setStatus(remaining.length === 0 ? "대기 항목이 모두 업로드되었습니다." : "일부 항목이 아직 대기 중입니다.");
 }
 
@@ -362,6 +419,9 @@ function buildReceiptPayload() {
     attachmentId: state.attachmentId,
     source: "receipt-ocr-pwa",
     workflow: "expense_approval",
+    deviceId: getDeviceId(),
+    deviceOwner: getDeviceOwner(),
+    submittedBy: getDeviceOwner(),
     batchIndex: state.currentIndex >= 0 ? state.currentIndex + 1 : null,
     batchTotal: state.items.length || 1,
     capturedAt: state.capturedAt || new Date().toISOString(),
@@ -404,10 +464,14 @@ function hasMinimumReceiptFields(receipt) {
 }
 
 function updateActions() {
-  const hasApi = Boolean(getApiBase() && getApiKey());
   const receipt = buildReceiptPayload();
   elements.ocrButton.disabled = !state.selectedFile;
-  elements.uploadButton.disabled = !hasApi || !hasMinimumReceiptFields(receipt);
+  elements.uploadButton.disabled = !isConfigured() || !hasMinimumReceiptFields(receipt);
+}
+
+function updateDeviceCard() {
+  const owner = getDeviceOwner();
+  elements.deviceOwnerText.textContent = owner ? `${owner} 기기` : "관리자 설정 필요";
 }
 
 function updateBatchText() {
@@ -419,12 +483,24 @@ function updateBatchText() {
   elements.batchText.textContent = `${state.currentIndex + 1} / ${state.items.length}`;
 }
 
+function isConfigured() {
+  return Boolean(getApiBase() && getApiKey() && getDeviceOwner());
+}
+
 function getApiBase() {
   return normalizeApiBase(elements.apiBaseInput.value || localStorage.getItem(STORAGE_KEYS.apiBase) || "");
 }
 
 function getApiKey() {
   return elements.apiKeyInput.value.trim() || localStorage.getItem(STORAGE_KEYS.apiKey) || "";
+}
+
+function getDeviceId() {
+  return localStorage.getItem(STORAGE_KEYS.deviceId) || "";
+}
+
+function getDeviceOwner() {
+  return elements.deviceOwnerInput.value.trim() || localStorage.getItem(STORAGE_KEYS.deviceOwner) || "";
 }
 
 function buildAuthHeaders() {
@@ -457,6 +533,62 @@ function setQueue(queue) {
 
 function updateQueueCount() {
   elements.queueCount.textContent = String(getQueue().length);
+}
+
+function addHistory(item) {
+  const history = getHistory();
+  history.unshift({
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    savedAt: new Date().toISOString(),
+    merchant: item.merchant,
+    purchasedAt: item.purchasedAt,
+    totalAmount: item.totalAmount,
+    usageContent: item.usageContent,
+    deviceOwner: item.deviceOwner,
+    deviceId: item.deviceId,
+    remoteId: item.remoteId,
+    uploadStatus: item.uploadStatus
+  });
+  localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(history.slice(0, 80)));
+}
+
+function getHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.history) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function renderHistory() {
+  const history = getHistory();
+  if (history.length === 0) {
+    elements.historyList.innerHTML = '<p class="empty-text">아직 저장된 업로드 내역이 없습니다.</p>';
+    return;
+  }
+
+  elements.historyList.innerHTML = history
+    .slice(0, 12)
+    .map((item) => {
+      const status = item.uploadStatus === "uploaded" ? "업로드 완료" : "대기 중";
+      const amount = item.totalAmount != null ? `${Number(item.totalAmount).toLocaleString("ko-KR")}원` : "-";
+      return `
+        <article class="history-item">
+          <div>
+            <strong>${escapeHtml(item.usageContent || item.merchant || "영수증")}</strong>
+            <span>${escapeHtml(item.merchant || "-")} · ${escapeHtml(item.purchasedAt || "-")} · ${amount}</span>
+          </div>
+          <em>${status}</em>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function clearHistory() {
+  localStorage.removeItem(STORAGE_KEYS.history);
+  renderHistory();
+  setStatus("기기 내 업로드 내역을 비웠습니다.");
 }
 
 function setStatus(message) {
@@ -492,6 +624,15 @@ function numberOrNull(value) {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function registerServiceWorker() {
