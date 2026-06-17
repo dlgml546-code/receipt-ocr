@@ -23,41 +23,10 @@
 
       <section class="device-card" aria-label="기기 등록 상태">
         <div>
-          <span>등록 기기</span>
-          <strong id="deviceOwnerText">관리자 설정 필요</strong>
+          <span>이 기기 ID</span>
+          <strong id="deviceIdText">확인 중</strong>
         </div>
-        <button id="openAdminButton" class="text-button" type="button">관리자 설정</button>
-      </section>
-
-      <section id="adminPanel" class="admin-panel" aria-label="관리자 설정" hidden>
-        <div class="section-heading compact">
-          <div>
-            <p class="eyebrow">관리자 전용</p>
-            <h2>연동 설정</h2>
-          </div>
-          <button id="closeAdminButton" class="text-button" type="button">닫기</button>
-        </div>
-        <div class="admin-grid">
-          <label class="field full">
-            <span>경영관리 대시보드 API</span>
-            <input id="apiBaseInput" type="url" inputmode="url" placeholder="https://프로젝트.supabase.co/functions/v1" autocomplete="url" />
-          </label>
-          <label class="field">
-            <span>연동 키</span>
-            <input id="apiKeyInput" type="password" placeholder="MOBILE_RECEIPT_API_KEY" autocomplete="off" />
-          </label>
-          <label class="field">
-            <span>기기 소유자</span>
-            <input id="deviceOwnerInput" type="text" placeholder="예: 홍길동" autocomplete="name" />
-          </label>
-          <label class="field full">
-            <span>기기 ID</span>
-            <input id="deviceIdInput" type="text" readonly />
-          </label>
-        </div>
-        <div class="admin-actions">
-          <button id="saveSettingsButton" class="primary-button" type="button">설정 저장</button>
-        </div>
+        <p>관리자가 이 ID를 직원에게 연결하면 누가 올렸는지 대시보드에서 확인할 수 있습니다.</p>
       </section>
 
       <section class="capture-zone" aria-label="영수증 이미지">

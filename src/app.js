@@ -1,8 +1,5 @@
 const STORAGE_KEYS = {
-  apiBase: "receiptOcr.apiBase",
-  apiKey: "receiptOcr.apiKey",
   deviceId: "receiptOcr.deviceId",
-  deviceOwner: "receiptOcr.deviceOwner",
   queue: "receiptOcr.pendingUploads",
   history: "receiptOcr.uploadHistory"
 };
@@ -17,15 +14,7 @@ const state = {
 };
 
 const elements = {
-  apiBaseInput: document.querySelector("#apiBaseInput"),
-  apiKeyInput: document.querySelector("#apiKeyInput"),
-  deviceOwnerInput: document.querySelector("#deviceOwnerInput"),
-  deviceIdInput: document.querySelector("#deviceIdInput"),
-  deviceOwnerText: document.querySelector("#deviceOwnerText"),
-  openAdminButton: document.querySelector("#openAdminButton"),
-  closeAdminButton: document.querySelector("#closeAdminButton"),
-  adminPanel: document.querySelector("#adminPanel"),
-  saveSettingsButton: document.querySelector("#saveSettingsButton"),
+  deviceIdText: document.querySelector("#deviceIdText"),
   cameraInput: document.querySelector("#cameraInput"),
   albumInput: document.querySelector("#albumInput"),
   previewImage: document.querySelector("#previewImage"),
@@ -53,10 +42,7 @@ init();
 
 function init() {
   ensureDeviceId();
-  loadSettingsIntoForm();
-  elements.openAdminButton.addEventListener("click", () => setAdminPanelOpen(true));
-  elements.closeAdminButton.addEventListener("click", () => setAdminPanelOpen(false));
-  elements.saveSettingsButton.addEventListener("click", saveSettings);
+  elements.deviceIdText.textContent = shortDeviceId(getDeviceId());
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
   elements.rotateButton.addEventListener("click", rotateCurrentReceipt);
@@ -68,7 +54,6 @@ function init() {
   elements.clearHistoryButton.addEventListener("click", clearHistory);
 
   registerServiceWorker();
-  updateDeviceCard();
   updateQueueCount();
   renderHistory();
   updateActions();
@@ -81,36 +66,6 @@ function ensureDeviceId() {
 
   const id = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   localStorage.setItem(STORAGE_KEYS.deviceId, id);
-}
-
-function loadSettingsIntoForm() {
-  elements.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || "";
-  elements.apiKeyInput.value = localStorage.getItem(STORAGE_KEYS.apiKey) || "";
-  elements.deviceOwnerInput.value = localStorage.getItem(STORAGE_KEYS.deviceOwner) || "";
-  elements.deviceIdInput.value = getDeviceId();
-}
-
-function setAdminPanelOpen(isOpen) {
-  elements.adminPanel.hidden = !isOpen;
-  if (isOpen) {
-    loadSettingsIntoForm();
-    elements.deviceOwnerInput.focus();
-  }
-}
-
-function saveSettings() {
-  const apiBase = normalizeApiBase(elements.apiBaseInput.value);
-  const apiKey = elements.apiKeyInput.value.trim();
-  const deviceOwner = elements.deviceOwnerInput.value.trim();
-
-  elements.apiBaseInput.value = apiBase;
-  localStorage.setItem(STORAGE_KEYS.apiBase, apiBase);
-  localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
-  localStorage.setItem(STORAGE_KEYS.deviceOwner, deviceOwner);
-
-  updateDeviceCard();
-  updateActions();
-  setStatus(apiBase && apiKey && deviceOwner ? "관리자 설정이 저장되었습니다." : "API, 연동 키, 기기 소유자를 모두 입력해 주세요.");
 }
 
 async function handleFileSelection(event) {
@@ -129,10 +84,7 @@ async function handleFileSelection(event) {
 
   await loadCurrentReceipt();
   event.target.value = "";
-
-  if (isConfigured()) {
-    await runOcr();
-  }
+  await runOcr();
 }
 
 async function loadCurrentReceipt(options = {}) {
@@ -189,13 +141,6 @@ async function runOcr() {
     return;
   }
 
-  if (!isConfigured()) {
-    setStatus("관리자가 이 기기의 연동 설정을 먼저 저장해야 합니다.");
-    setAdminPanelOpen(true);
-    updateActions();
-    return;
-  }
-
   elements.ocrButton.disabled = true;
   setStatus("내용을 분석하는 중입니다.");
 
@@ -205,12 +150,10 @@ async function runOcr() {
     formData.append("source", "receipt-ocr-pwa");
     formData.append("workflow", "expense_approval");
     formData.append("deviceId", getDeviceId());
-    formData.append("deviceOwner", getDeviceOwner());
     formData.append("capturedAt", state.capturedAt);
 
-    const response = await fetch(`${getApiBase()}/receipts/ocr`, {
+    const response = await fetch("/api/receipts/ocr", {
       method: "POST",
-      headers: buildAuthHeaders(),
       body: formData
     });
 
@@ -225,7 +168,7 @@ async function runOcr() {
     setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
   } catch (error) {
     console.error(error);
-    setStatus("분석에 실패했습니다. 관리자 설정과 OCR 함수를 확인해 주세요.");
+    setStatus("분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.");
   } finally {
     updateActions();
   }
@@ -233,13 +176,6 @@ async function runOcr() {
 
 async function uploadCurrentReceipt() {
   const receipt = buildReceiptPayload();
-
-  if (!isConfigured()) {
-    setStatus("관리자가 이 기기의 연동 설정을 먼저 저장해야 합니다.");
-    setAdminPanelOpen(true);
-    updateActions();
-    return;
-  }
 
   if (!hasMinimumReceiptFields(receipt)) {
     setStatus("가맹점, 사용일, 총액, 사용 내용을 모두 확인해 주세요.");
@@ -251,7 +187,7 @@ async function uploadCurrentReceipt() {
   setStatus("업로드 중입니다.");
 
   try {
-    const result = await uploadReceipt(getApiBase(), receipt);
+    const result = await uploadReceipt(receipt);
     addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
     await advanceAfterUpload();
   } catch (error) {
@@ -271,9 +207,7 @@ async function advanceAfterUpload() {
     state.currentIndex += 1;
     await loadCurrentReceipt();
     setStatus("업로드되었습니다. 다음 영수증을 확인해 주세요.");
-    if (isConfigured()) {
-      await runOcr();
-    }
+    await runOcr();
     return;
   }
 
@@ -284,8 +218,8 @@ async function advanceAfterUpload() {
 async function retryQueuedUploads() {
   const queue = getQueue();
 
-  if (!isConfigured() || queue.length === 0) {
-    setStatus(queue.length === 0 ? "대기 항목이 없습니다." : "관리자 설정을 확인해 주세요.");
+  if (queue.length === 0) {
+    setStatus("대기 항목이 없습니다.");
     return;
   }
 
@@ -294,7 +228,7 @@ async function retryQueuedUploads() {
   const remaining = [];
   for (const receipt of queue) {
     try {
-      const result = await uploadReceipt(getApiBase(), receipt);
+      const result = await uploadReceipt(receipt);
       addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
     } catch (error) {
       console.error(error);
@@ -308,12 +242,11 @@ async function retryQueuedUploads() {
   setStatus(remaining.length === 0 ? "대기 항목이 모두 업로드되었습니다." : "일부 항목이 아직 대기 중입니다.");
 }
 
-async function uploadReceipt(apiBase, receipt) {
-  const response = await fetch(`${apiBase}/receipts`, {
+async function uploadReceipt(receipt) {
+  const response = await fetch("/api/receipts", {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
-      ...buildAuthHeaders()
+      "Content-Type": "application/json"
     },
     body: JSON.stringify(receipt)
   });
@@ -420,8 +353,6 @@ function buildReceiptPayload() {
     source: "receipt-ocr-pwa",
     workflow: "expense_approval",
     deviceId: getDeviceId(),
-    deviceOwner: getDeviceOwner(),
-    submittedBy: getDeviceOwner(),
     batchIndex: state.currentIndex >= 0 ? state.currentIndex + 1 : null,
     batchTotal: state.items.length || 1,
     capturedAt: state.capturedAt || new Date().toISOString(),
@@ -466,12 +397,7 @@ function hasMinimumReceiptFields(receipt) {
 function updateActions() {
   const receipt = buildReceiptPayload();
   elements.ocrButton.disabled = !state.selectedFile;
-  elements.uploadButton.disabled = !isConfigured() || !hasMinimumReceiptFields(receipt);
-}
-
-function updateDeviceCard() {
-  const owner = getDeviceOwner();
-  elements.deviceOwnerText.textContent = owner ? `${owner} 기기` : "관리자 설정 필요";
+  elements.uploadButton.disabled = !hasMinimumReceiptFields(receipt);
 }
 
 function updateBatchText() {
@@ -483,34 +409,12 @@ function updateBatchText() {
   elements.batchText.textContent = `${state.currentIndex + 1} / ${state.items.length}`;
 }
 
-function isConfigured() {
-  return Boolean(getApiBase() && getApiKey() && getDeviceOwner());
-}
-
-function getApiBase() {
-  return normalizeApiBase(elements.apiBaseInput.value || localStorage.getItem(STORAGE_KEYS.apiBase) || "");
-}
-
-function getApiKey() {
-  return elements.apiKeyInput.value.trim() || localStorage.getItem(STORAGE_KEYS.apiKey) || "";
-}
-
 function getDeviceId() {
   return localStorage.getItem(STORAGE_KEYS.deviceId) || "";
 }
 
-function getDeviceOwner() {
-  return elements.deviceOwnerInput.value.trim() || localStorage.getItem(STORAGE_KEYS.deviceOwner) || "";
-}
-
-function buildAuthHeaders() {
-  return {
-    "x-receipt-api-key": getApiKey()
-  };
-}
-
-function normalizeApiBase(value) {
-  return value.trim().replace(/\/+$/, "");
+function shortDeviceId(id) {
+  return id ? id.slice(0, 8) : "미등록";
 }
 
 function queueReceipt(receipt) {
@@ -544,7 +448,6 @@ function addHistory(item) {
     purchasedAt: item.purchasedAt,
     totalAmount: item.totalAmount,
     usageContent: item.usageContent,
-    deviceOwner: item.deviceOwner,
     deviceId: item.deviceId,
     remoteId: item.remoteId,
     uploadStatus: item.uploadStatus

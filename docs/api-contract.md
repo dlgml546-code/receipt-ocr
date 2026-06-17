@@ -1,15 +1,17 @@
 # API Contract
 
-Set the app API base URL to the management dashboard API root, for example:
+The browser app calls same-origin Vercel API routes:
 
 ```text
-https://PROJECT_REF.supabase.co/functions/v1
+/api/receipts/ocr
+/api/receipts
 ```
 
-Every request should include:
+The Vercel API routes forward requests to Supabase Edge Functions using server-side environment variables:
 
-```http
-x-receipt-api-key: <MOBILE_RECEIPT_API_KEY>
+```text
+RECEIPT_API_BASE=https://PROJECT_REF.supabase.co/functions/v1
+RECEIPT_API_KEY=<MOBILE_RECEIPT_API_KEY>
 ```
 
 ## OCR endpoint
@@ -25,7 +27,6 @@ Fields:
 - `source`: `receipt-ocr-pwa`
 - `workflow`: `expense_approval`
 - `deviceId`: stable local device identifier
-- `deviceOwner`: admin-registered phone owner
 - `capturedAt`: ISO timestamp
 
 Example response:
@@ -51,7 +52,7 @@ The app also accepts the fields at the top level if `receipt` is omitted.
 
 This endpoint should create or attach a receipt to the dashboard expense approval flow.
 
-When using Supabase Edge Functions, deploy a function named `receipts` and set the app API base to:
+When using Supabase Edge Functions, deploy a function named `receipts`.
 
 ```text
 https://PROJECT_REF.supabase.co/functions/v1
@@ -85,8 +86,6 @@ Example request:
   "source": "receipt-ocr-pwa",
   "workflow": "expense_approval",
   "deviceId": "device-uuid",
-  "deviceOwner": "Hong Gil Dong",
-  "submittedBy": "Hong Gil Dong",
   "batchIndex": 1,
   "batchTotal": 3,
   "capturedAt": "2026-06-17T02:00:00.000Z",

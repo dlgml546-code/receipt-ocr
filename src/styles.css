@@ -102,9 +102,7 @@ h2 {
   font-weight: 800;
 }
 
-.settings-panel,
 .device-card,
-.admin-panel,
 .usage-panel,
 .history-panel,
 .result-panel {
@@ -114,20 +112,9 @@ h2 {
   box-shadow: var(--shadow);
 }
 
-.settings-panel {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 10px;
-  align-items: end;
-  padding: 14px;
-  margin-bottom: 16px;
-}
-
 .device-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  gap: 8px;
   padding: 14px;
   margin-bottom: 16px;
 }
@@ -150,20 +137,11 @@ h2 {
   font-weight: 800;
 }
 
-.admin-panel {
-  padding: 0 14px 14px;
-  margin-bottom: 16px;
-}
-
-.admin-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.admin-actions {
-  display: grid;
-  margin-top: 12px;
+.device-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .text-button {
@@ -503,8 +481,6 @@ button:focus-visible {
     padding-right: 16px;
   }
 
-  .settings-panel,
-  .admin-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
