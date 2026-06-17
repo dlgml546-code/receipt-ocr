@@ -4,6 +4,8 @@ const STORAGE_KEYS = {
 };
 
 const state = {
+  items: [],
+  currentIndex: -1,
   selectedFile: null,
   previewUrl: "",
   attachmentId: "",
@@ -13,8 +15,11 @@ const state = {
 const elements = {
   apiBaseInput: document.querySelector("#apiBaseInput"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
-  fileInput: document.querySelector("#fileInput"),
+  cameraInput: document.querySelector("#cameraInput"),
+  albumInput: document.querySelector("#albumInput"),
   previewImage: document.querySelector("#previewImage"),
+  rotateButton: document.querySelector("#rotateButton"),
+  batchText: document.querySelector("#batchText"),
   ocrButton: document.querySelector("#ocrButton"),
   uploadButton: document.querySelector("#uploadButton"),
   retryButton: document.querySelector("#retryButton"),
@@ -27,6 +32,7 @@ const elements = {
   taxInput: document.querySelector("#taxInput"),
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
+  usageInput: document.querySelector("#usageInput"),
   rawTextInput: document.querySelector("#rawTextInput")
 };
 
@@ -35,11 +41,14 @@ init();
 function init() {
   elements.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || "";
   elements.saveSettingsButton.addEventListener("click", saveSettings);
-  elements.fileInput.addEventListener("change", handleFileChange);
+  elements.cameraInput.addEventListener("change", handleFileSelection);
+  elements.albumInput.addEventListener("change", handleFileSelection);
+  elements.rotateButton.addEventListener("click", rotateCurrentReceipt);
   elements.ocrButton.addEventListener("click", runOcr);
   elements.uploadButton.addEventListener("click", uploadCurrentReceipt);
   elements.retryButton.addEventListener("click", retryQueuedUploads);
   elements.form.addEventListener("input", updateActions);
+  elements.usageInput.addEventListener("input", updateActions);
 
   registerServiceWorker();
   updateQueueCount();
@@ -54,42 +63,93 @@ function saveSettings() {
   updateActions();
 }
 
-function handleFileChange(event) {
-  const [file] = event.target.files || [];
-  if (!file) {
+async function handleFileSelection(event) {
+  const files = Array.from(event.target.files || []);
+  if (files.length === 0) {
     return;
   }
 
-  if (state.previewUrl) {
-    URL.revokeObjectURL(state.previewUrl);
+  clearPreviewUrl();
+  state.items = files.map((file) => ({
+    originalFile: file,
+    normalizedFile: null,
+    rotation: 0
+  }));
+  state.currentIndex = 0;
+
+  await loadCurrentReceipt();
+  event.target.value = "";
+}
+
+async function loadCurrentReceipt(options = {}) {
+  const item = state.items[state.currentIndex];
+  if (!item) {
+    clearAfterUpload();
+    return;
   }
 
-  state.selectedFile = file;
-  state.previewUrl = URL.createObjectURL(file);
+  clearPreviewUrl();
+  setStatus("영수증 이미지를 정리하는 중입니다.");
+
+  try {
+    item.normalizedFile = await normalizeReceiptImage(item.originalFile, item.rotation);
+  } catch (error) {
+    console.warn("Image normalization failed", error);
+    item.normalizedFile = item.originalFile;
+  }
+
+  state.selectedFile = item.normalizedFile;
+  state.previewUrl = URL.createObjectURL(item.normalizedFile);
   state.attachmentId = "";
   state.capturedAt = new Date().toISOString();
 
   elements.previewImage.src = state.previewUrl;
   elements.previewImage.hidden = false;
-  clearReceiptFields();
-  setStatus("영수증이 선택되었습니다.");
+  elements.rotateButton.disabled = false;
+
+  if (!options.preserveFields) {
+    clearReceiptFields();
+    elements.usageInput.value = "";
+  }
+
+  updateBatchText();
+  setStatus(state.items.length > 1 ? "여러 장이 선택되었습니다. 한 장씩 분석 후 업로드해 주세요." : "영수증이 선택되었습니다.");
   updateActions();
+}
+
+async function rotateCurrentReceipt() {
+  const item = state.items[state.currentIndex];
+  if (!item) {
+    return;
+  }
+
+  item.rotation = (item.rotation + 90) % 360;
+  await loadCurrentReceipt({ preserveFields: true });
+  setStatus("영수증 방향을 90도 회전했습니다.");
 }
 
 async function runOcr() {
   const apiBase = getApiBase();
-  if (!apiBase || !state.selectedFile) {
+  if (!state.selectedFile) {
+    setStatus("먼저 영수증을 촬영하거나 앨범에서 선택해 주세요.");
+    updateActions();
+    return;
+  }
+
+  if (!apiBase) {
+    setStatus("분석하려면 경영관리 대시보드 API 주소를 저장해야 합니다.");
     updateActions();
     return;
   }
 
   elements.ocrButton.disabled = true;
-  setStatus("분석 중입니다.");
+  setStatus("내용을 분석하는 중입니다.");
 
   try {
     const formData = new FormData();
     formData.append("receipt", state.selectedFile);
     formData.append("source", "receipt-ocr-pwa");
+    formData.append("workflow", "expense_approval");
     formData.append("capturedAt", state.capturedAt);
 
     const response = await fetch(`${apiBase}/receipts/ocr`, {
@@ -105,10 +165,10 @@ async function runOcr() {
     const receipt = normalizeReceipt(payload);
     state.attachmentId = payload.attachmentId || receipt.attachmentId || "";
     fillReceiptFields(receipt);
-    setStatus("분석 결과가 반영되었습니다.");
+    setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
   } catch (error) {
     console.error(error);
-    setStatus("분석에 실패했습니다. 내용을 직접 입력하실 수 있습니다.");
+    setStatus("분석에 실패했습니다. API 주소와 대시보드 OCR 엔드포인트를 확인해 주세요.");
   } finally {
     updateActions();
   }
@@ -118,7 +178,14 @@ async function uploadCurrentReceipt() {
   const apiBase = getApiBase();
   const receipt = buildReceiptPayload();
 
-  if (!apiBase || !hasMinimumReceiptFields(receipt)) {
+  if (!apiBase) {
+    setStatus("업로드하려면 경영관리 대시보드 API 주소를 저장해야 합니다.");
+    updateActions();
+    return;
+  }
+
+  if (!hasMinimumReceiptFields(receipt)) {
+    setStatus("가맹점, 사용일, 총액, 사용 내용을 모두 확인해 주세요.");
     updateActions();
     return;
   }
@@ -128,16 +195,27 @@ async function uploadCurrentReceipt() {
 
   try {
     await uploadReceipt(apiBase, receipt);
-    clearAfterUpload();
-    setStatus("대시보드에 업로드되었습니다.");
+    await advanceAfterUpload();
   } catch (error) {
     console.error(error);
     queueReceipt(receipt);
-    setStatus("업로드가 대기열에 저장되었습니다.");
+    setStatus("업로드가 실패해 대기열에 저장되었습니다.");
   } finally {
     updateQueueCount();
     updateActions();
   }
+}
+
+async function advanceAfterUpload() {
+  if (state.currentIndex >= 0 && state.currentIndex < state.items.length - 1) {
+    state.currentIndex += 1;
+    await loadCurrentReceipt();
+    setStatus("업로드되었습니다. 다음 영수증을 확인해 주세요.");
+    return;
+  }
+
+  clearAfterUpload();
+  setStatus("대시보드에 업로드되었습니다.");
 }
 
 async function retryQueuedUploads() {
@@ -182,6 +260,63 @@ async function uploadReceipt(apiBase, receipt) {
   return response.json().catch(() => ({}));
 }
 
+async function normalizeReceiptImage(file, manualRotation) {
+  const image = await loadDrawableImage(file);
+  const autoRotation = image.width > image.height ? 90 : 0;
+  const rotation = (autoRotation + manualRotation) % 360;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const rotatedSideways = rotation === 90 || rotation === 270;
+
+  canvas.width = rotatedSideways ? image.height : image.width;
+  canvas.height = rotatedSideways ? image.width : image.height;
+
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate((rotation * Math.PI) / 180);
+  context.drawImage(image.source, -image.width / 2, -image.height / 2);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+  if (!blob) {
+    return file;
+  }
+
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+  return new File([blob], `${baseName}-receipt.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now()
+  });
+}
+
+async function loadDrawableImage(file) {
+  if ("createImageBitmap" in window) {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height
+      };
+    } catch (error) {
+      console.warn("createImageBitmap failed, falling back to Image", error);
+    }
+  }
+
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function normalizeReceipt(payload) {
   const receipt = payload.receipt || payload;
   return {
@@ -214,9 +349,13 @@ function buildReceiptPayload() {
     taxAmount: numberOrNull(elements.taxInput.value),
     currency: elements.currencyInput.value,
     category: elements.categoryInput.value,
+    usageContent: elements.usageInput.value.trim(),
     rawText: elements.rawTextInput.value.trim(),
     attachmentId: state.attachmentId,
     source: "receipt-ocr-pwa",
+    workflow: "expense_approval",
+    batchIndex: state.currentIndex >= 0 ? state.currentIndex + 1 : null,
+    batchTotal: state.items.length || 1,
     capturedAt: state.capturedAt || new Date().toISOString(),
     status: "confirmed"
   };
@@ -229,24 +368,47 @@ function clearReceiptFields() {
 }
 
 function clearAfterUpload() {
+  clearPreviewUrl();
+  state.items = [];
+  state.currentIndex = -1;
   state.selectedFile = null;
   state.attachmentId = "";
   state.capturedAt = "";
-  elements.fileInput.value = "";
+  elements.cameraInput.value = "";
+  elements.albumInput.value = "";
   elements.previewImage.hidden = true;
   elements.previewImage.removeAttribute("src");
+  elements.rotateButton.disabled = true;
+  elements.usageInput.value = "";
+  elements.batchText.textContent = "";
   clearReceiptFields();
 }
 
+function clearPreviewUrl() {
+  if (state.previewUrl) {
+    URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = "";
+  }
+}
+
 function hasMinimumReceiptFields(receipt) {
-  return Boolean(receipt.merchant && receipt.purchasedAt && receipt.totalAmount !== null);
+  return Boolean(receipt.merchant && receipt.purchasedAt && receipt.totalAmount !== null && receipt.usageContent);
 }
 
 function updateActions() {
   const hasApi = Boolean(getApiBase());
   const receipt = buildReceiptPayload();
-  elements.ocrButton.disabled = !hasApi || !state.selectedFile;
+  elements.ocrButton.disabled = !state.selectedFile;
   elements.uploadButton.disabled = !hasApi || !hasMinimumReceiptFields(receipt);
+}
+
+function updateBatchText() {
+  if (state.items.length <= 1) {
+    elements.batchText.textContent = "";
+    return;
+  }
+
+  elements.batchText.textContent = `${state.currentIndex + 1} / ${state.items.length}`;
 }
 
 function getApiBase() {
@@ -325,4 +487,3 @@ function registerServiceWorker() {
     });
   });
 }
-

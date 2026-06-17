@@ -1,4 +1,4 @@
-const CACHE_NAME = "receipt-ocr-pwa-v1";
+const CACHE_NAME = "receipt-ocr-pwa-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -40,4 +40,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-

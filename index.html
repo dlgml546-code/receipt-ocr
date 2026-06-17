@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f766e" />
+    <meta name="theme-color" content="#3182f6" />
     <title>영수증 OCR</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
@@ -13,82 +13,105 @@
     <main class="app-shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Receipt OCR</p>
-          <h1>영수증 등록</h1>
+          <p class="eyebrow">지출 결의 영수증</p>
+          <h1>영수증을 촬영해 주세요</h1>
         </div>
-        <button class="icon-button" id="retryButton" type="button" aria-label="대기 항목 재시도">
+        <button class="queue-button" id="retryButton" type="button" aria-label="대기 항목 재시도">
           <span id="queueCount">0</span>
         </button>
       </header>
 
-      <section class="panel settings-panel" aria-label="연동 설정">
+      <section class="settings-panel" aria-label="연동 설정">
         <label class="field">
-          <span>대시보드 API</span>
+          <span>경영관리 대시보드 API</span>
           <input id="apiBaseInput" type="url" inputmode="url" placeholder="https://dashboard.example.com/api" autocomplete="url" />
         </label>
         <button id="saveSettingsButton" class="secondary-button" type="button">저장</button>
       </section>
 
       <section class="capture-zone" aria-label="영수증 이미지">
-        <input id="fileInput" class="file-input" type="file" accept="image/*" capture="environment" />
-        <label class="capture-button" for="fileInput">
-          <span class="camera-mark">+</span>
-          <span>촬영</span>
-        </label>
+        <input id="cameraInput" class="file-input" type="file" accept="image/*" capture="environment" />
+        <input id="albumInput" class="file-input" type="file" accept="image/*" multiple />
         <img id="previewImage" class="preview-image" alt="선택한 영수증" hidden />
+        <div class="capture-actions">
+          <label class="capture-button" for="cameraInput">
+            <span class="capture-plus" aria-hidden="true">+</span>
+            <span>촬영</span>
+          </label>
+          <label class="secondary-capture-button" for="albumInput">앨범 선택</label>
+          <button id="rotateButton" class="secondary-capture-button" type="button" disabled>회전</button>
+        </div>
+        <p id="batchText" class="batch-text"></p>
       </section>
 
       <section class="action-row" aria-label="처리">
-        <button id="ocrButton" class="primary-button" type="button" disabled>분석</button>
-        <button id="uploadButton" class="primary-button accent" type="button" disabled>업로드</button>
+        <button id="ocrButton" class="primary-button" type="button" disabled>내용 분석</button>
+        <button id="uploadButton" class="primary-button" type="button" disabled>업로드</button>
       </section>
 
-      <form id="receiptForm" class="panel form-grid" aria-label="영수증 내용">
+      <section class="usage-panel" aria-label="사용 내용">
         <label class="field">
-          <span>가맹점</span>
-          <input id="merchantInput" name="merchant" autocomplete="organization" />
+          <span>사용 내용 <strong>필수</strong></span>
+          <textarea id="usageInput" name="usageContent" rows="3" required placeholder="예: 거래처 미팅 다과 구입"></textarea>
         </label>
-        <label class="field">
-          <span>사용일</span>
-          <input id="dateInput" name="purchasedAt" type="date" />
-        </label>
-        <label class="field">
-          <span>총액</span>
-          <input id="totalInput" name="totalAmount" type="number" min="0" step="1" inputmode="numeric" />
-        </label>
-        <label class="field">
-          <span>부가세</span>
-          <input id="taxInput" name="taxAmount" type="number" min="0" step="1" inputmode="numeric" />
-        </label>
-        <label class="field">
-          <span>통화</span>
-          <select id="currencyInput" name="currency">
-            <option value="KRW">KRW</option>
-            <option value="USD">USD</option>
-            <option value="JPY">JPY</option>
-            <option value="EUR">EUR</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>분류</span>
-          <select id="categoryInput" name="category">
-            <option value="general">일반</option>
-            <option value="meals">식비</option>
-            <option value="transport">교통</option>
-            <option value="supplies">비품</option>
-            <option value="lodging">숙박</option>
-          </select>
-        </label>
-        <label class="field full">
-          <span>OCR 원문</span>
-          <textarea id="rawTextInput" name="rawText" rows="5"></textarea>
-        </label>
+      </section>
+
+      <form id="receiptForm" class="result-panel" aria-label="영수증 자동 인식 결과">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">자동 인식 결과</p>
+            <h2>영수증 내용</h2>
+          </div>
+          <p>분석 후 자동으로 채워지며, 틀린 값만 수정하시면 됩니다.</p>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>가맹점</span>
+            <input id="merchantInput" name="merchant" autocomplete="organization" placeholder="자동 인식" />
+          </label>
+          <label class="field">
+            <span>사용일</span>
+            <input id="dateInput" name="purchasedAt" type="date" />
+          </label>
+          <label class="field">
+            <span>총액</span>
+            <input id="totalInput" name="totalAmount" type="number" min="0" step="1" inputmode="numeric" placeholder="자동 인식" />
+          </label>
+          <label class="field">
+            <span>부가세</span>
+            <input id="taxInput" name="taxAmount" type="number" min="0" step="1" inputmode="numeric" placeholder="자동 인식" />
+          </label>
+          <label class="field">
+            <span>통화</span>
+            <select id="currencyInput" name="currency">
+              <option value="KRW">KRW</option>
+              <option value="USD">USD</option>
+              <option value="JPY">JPY</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>분류</span>
+            <select id="categoryInput" name="category">
+              <option value="general">일반</option>
+              <option value="meals">식비</option>
+              <option value="transport">교통</option>
+              <option value="supplies">비품</option>
+              <option value="lodging">숙박</option>
+            </select>
+          </label>
+          <label class="field full">
+            <span>OCR 원문</span>
+            <textarea id="rawTextInput" name="rawText" rows="4" placeholder="분석 결과 원문이 표시됩니다."></textarea>
+          </label>
+        </div>
       </form>
 
+      <p class="confirmation-text">위 내용이 맞다면 업로드 버튼을 눌러주세요.</p>
       <p id="statusText" class="status-text" role="status" aria-live="polite"></p>
     </main>
 
     <script type="module" src="./src/app.js"></script>
   </body>
 </html>
-

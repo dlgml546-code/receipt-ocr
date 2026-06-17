@@ -1,6 +1,6 @@
 # API Contract
 
-Set the app API base URL to the dashboard API root, for example:
+Set the app API base URL to the management dashboard API root, for example:
 
 ```text
 https://dashboard.example.com/api
@@ -17,6 +17,7 @@ Fields:
 
 - `receipt`: image file
 - `source`: `receipt-ocr-pwa`
+- `workflow`: `expense_approval`
 - `capturedAt`: ISO timestamp
 
 Example response:
@@ -40,6 +41,8 @@ The app also accepts the fields at the top level if `receipt` is omitted.
 
 ## Upload endpoint
 
+This endpoint should create or attach a receipt to the dashboard expense approval flow.
+
 ```http
 POST /receipts
 Content-Type: application/json
@@ -55,9 +58,13 @@ Example request:
   "taxAmount": 1164,
   "currency": "KRW",
   "category": "meals",
+  "usageContent": "Client meeting refreshments",
   "rawText": "...",
   "attachmentId": "att_123",
   "source": "receipt-ocr-pwa",
+  "workflow": "expense_approval",
+  "batchIndex": 1,
+  "batchTotal": 3,
   "capturedAt": "2026-06-17T02:00:00.000Z",
   "status": "confirmed"
 }
@@ -71,4 +78,3 @@ Recommended response:
   "status": "uploaded"
 }
 ```
-
