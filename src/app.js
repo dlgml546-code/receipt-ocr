@@ -158,7 +158,7 @@ async function runOcr() {
     });
 
     if (!response.ok) {
-      throw new Error(`OCR failed with ${response.status}`);
+      throw new Error(await getErrorMessage(response, `OCR failed with ${response.status}`));
     }
 
     const payload = await response.json();
@@ -168,7 +168,7 @@ async function runOcr() {
     setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
   } catch (error) {
     console.error(error);
-    setStatus("분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.");
+    setStatus(getOcrFailureMessage(error));
   } finally {
     updateActions();
   }
@@ -251,6 +251,29 @@ async function uploadReceipt(receipt) {
   }
 
   return response.json().catch(() => ({}));
+}
+
+async function getErrorMessage(response, fallback) {
+  try {
+    const payload = await response.json();
+    return payload.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getOcrFailureMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("OpenAI API key")) {
+    return "분석에 실패했습니다. 관리자 OCR 키를 확인해 주세요.";
+  }
+
+  if (message.includes("receipt image is required")) {
+    return "영수증 이미지를 다시 선택해 주세요.";
+  }
+
+  return "분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.";
 }
 
 async function normalizeReceiptImage(file, manualRotation) {

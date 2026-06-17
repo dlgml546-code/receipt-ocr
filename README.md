@@ -48,17 +48,18 @@ Deploy the `receipts` Edge Function from this repository:
 
 ```powershell
 cd C:\Users\LUPL-2\Documents\Codex\2026-06-17\ocr\receipt-ocr-pwa
-npx.cmd supabase functions deploy receipts --project-ref iocdligckxakvvbjldkz
+npx.cmd supabase functions deploy receipts --project-ref iocdligckxakvvbjldkz --no-verify-jwt
 ```
 
 Register required Supabase secrets:
 
 ```powershell
 npx.cmd supabase secrets set MOBILE_RECEIPT_API_KEY="your-long-random-key" --project-ref iocdligckxakvvbjldkz
-npx.cmd supabase secrets set OPENAI_API_KEY="sk-..." --project-ref iocdligckxakvvbjldkz
+npx.cmd supabase secrets set OPENAI_API_KEY="your-real-openai-api-key" --project-ref iocdligckxakvvbjldkz
 ```
 
 Do not put `MOBILE_RECEIPT_API_KEY`, `OPENAI_API_KEY`, or service role keys in browser code.
+If OCR returns `OpenAI API key is invalid or unauthorized`, replace the Supabase `OPENAI_API_KEY` secret with a real active OpenAI API key.
 
 ## Local Development
 

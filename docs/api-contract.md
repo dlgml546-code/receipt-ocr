@@ -61,8 +61,9 @@ https://PROJECT_REF.supabase.co/functions/v1
 Deployment from this repository:
 
 ```powershell
-supabase functions deploy receipts --project-ref PROJECT_REF
+supabase functions deploy receipts --project-ref PROJECT_REF --no-verify-jwt
 supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_키 --project-ref PROJECT_REF
+supabase secrets set OPENAI_API_KEY=실제_OPENAI_API_KEY --project-ref PROJECT_REF
 ```
 
 ```http

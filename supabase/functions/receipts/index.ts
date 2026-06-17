@@ -209,7 +209,11 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
   });
 
   if (!aiResponse.ok) {
-    throw new Error(await aiResponse.text());
+    if (aiResponse.status === 401 || aiResponse.status === 403) {
+      throw new Error("OpenAI API key is invalid or unauthorized.");
+    }
+
+    throw new Error(`OpenAI OCR request failed with status ${aiResponse.status}.`);
   }
 
   const result = await aiResponse.json();
