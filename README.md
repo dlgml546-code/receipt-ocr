@@ -60,11 +60,12 @@ The upload payload includes:
 
 ## Supabase setup
 
-In the dashboard repository, deploy the `receipts` Edge Function:
+Deploy the `receipts` Edge Function from this `receipt-ocr` repository:
 
 ```powershell
-supabase functions deploy receipts
-supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_연동키
+cd C:\Users\LUPL-2\Documents\Codex\2026-06-17\ocr\receipt-ocr-pwa
+supabase functions deploy receipts --project-ref PROJECT_REF
+supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_연동키 --project-ref PROJECT_REF
 ```
 
 The phone app settings should use:

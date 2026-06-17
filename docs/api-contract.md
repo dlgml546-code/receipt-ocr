@@ -57,6 +57,13 @@ When using Supabase Edge Functions, deploy a function named `receipts` and set t
 https://PROJECT_REF.supabase.co/functions/v1
 ```
 
+Deployment from this repository:
+
+```powershell
+supabase functions deploy receipts --project-ref PROJECT_REF
+supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_키 --project-ref PROJECT_REF
+```
+
 ```http
 POST /receipts
 Content-Type: application/json
