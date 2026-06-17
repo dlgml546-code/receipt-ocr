@@ -9,6 +9,7 @@
   --soft: #f2f4f6;
   --primary: #3182f6;
   --primary-pressed: #1b64da;
+  --success: #00a661;
   --danger: #e42939;
   --shadow: 0 8px 24px rgba(25, 31, 40, 0.08);
   font-family: "Pretendard", sans-serif;
@@ -416,6 +417,84 @@ button:focus-visible {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.45;
+}
+
+.feedback-dialog[hidden] {
+  display: none;
+}
+
+.feedback-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(25, 31, 40, 0.42);
+}
+
+.feedback-dialog__panel {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(100%, 330px);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 28px 22px 22px;
+  text-align: center;
+  box-shadow: 0 18px 48px rgba(25, 31, 40, 0.22);
+}
+
+.feedback-dialog__icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: #e8f3ff;
+  color: var(--primary);
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.feedback-dialog.is-loading .feedback-dialog__icon {
+  border: 4px solid #d9e9ff;
+  border-top-color: var(--primary);
+  background: transparent;
+  animation: feedback-spin 0.8s linear infinite;
+}
+
+.feedback-dialog.is-success .feedback-dialog__icon {
+  background: #e6f8ef;
+  color: var(--success);
+}
+
+.feedback-dialog.is-error .feedback-dialog__icon {
+  background: #fff0f1;
+  color: var(--danger);
+}
+
+.feedback-dialog h2 {
+  font-size: 22px;
+}
+
+.feedback-dialog p {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.feedback-dialog .primary-button {
+  width: 100%;
+  margin-top: 4px;
+}
+
+@keyframes feedback-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .history-panel {

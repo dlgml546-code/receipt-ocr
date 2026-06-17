@@ -111,6 +111,15 @@
       <p class="confirmation-text">위 내용이 맞다면 업로드 버튼을 눌러주세요.</p>
       <p id="statusText" class="status-text" role="status" aria-live="polite"></p>
 
+      <div id="feedbackDialog" class="feedback-dialog" role="alertdialog" aria-live="assertive" aria-modal="true" hidden>
+        <div class="feedback-dialog__panel">
+          <div id="feedbackIcon" class="feedback-dialog__icon" aria-hidden="true"></div>
+          <h2 id="feedbackTitle"></h2>
+          <p id="feedbackMessage"></p>
+          <button id="feedbackCloseButton" class="primary-button" type="button">확인</button>
+        </div>
+      </div>
+
     </main>
 
     <script type="module" src="./src/app.js"></script>

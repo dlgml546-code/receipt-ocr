@@ -1,3 +1,9 @@
+module.exports.config = {
+  api: {
+    bodyParser: false
+  }
+};
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
@@ -13,7 +19,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
+    const body = await readBody(req);
     const upstream = await fetch(`${apiBase}/receipts`, {
       method: "POST",
       headers: {
@@ -31,6 +37,15 @@ module.exports = async function handler(req, res) {
 
 function normalizeApiBase(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
 }
 
 async function forwardResponse(upstream, res) {

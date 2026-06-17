@@ -9,7 +9,8 @@ const state = {
   selectedFile: null,
   previewUrl: "",
   attachmentId: "",
-  capturedAt: ""
+  capturedAt: "",
+  feedbackTimer: 0
 };
 
 const elements = {
@@ -32,7 +33,12 @@ const elements = {
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
   usageInput: document.querySelector("#usageInput"),
-  rawTextInput: document.querySelector("#rawTextInput")
+  rawTextInput: document.querySelector("#rawTextInput"),
+  feedbackDialog: document.querySelector("#feedbackDialog"),
+  feedbackIcon: document.querySelector("#feedbackIcon"),
+  feedbackTitle: document.querySelector("#feedbackTitle"),
+  feedbackMessage: document.querySelector("#feedbackMessage"),
+  feedbackCloseButton: document.querySelector("#feedbackCloseButton")
 };
 
 init();
@@ -49,6 +55,7 @@ function init() {
   elements.retryButton.addEventListener("click", retryQueuedUploads);
   elements.form.addEventListener("input", updateActions);
   elements.usageInput.addEventListener("input", updateActions);
+  elements.feedbackCloseButton.addEventListener("click", hideFeedback);
 
   registerServiceWorker();
   updateQueueCount();
@@ -143,6 +150,12 @@ async function runOcr() {
 
   elements.ocrButton.disabled = true;
   setStatus("내용을 분석하는 중입니다.");
+  showFeedback({
+    type: "loading",
+    title: "내용 분석 중",
+    message: "영수증 내용을 읽고 있습니다. 잠시만 기다려 주세요.",
+    closeable: false
+  });
 
   try {
     const formData = new FormData();
@@ -166,9 +179,17 @@ async function runOcr() {
     state.attachmentId = payload.attachmentId || receipt.attachmentId || "";
     fillReceiptFields(receipt);
     setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
+    hideFeedback();
   } catch (error) {
     console.error(error);
-    setStatus(getOcrFailureMessage(error));
+    const message = getOcrFailureMessage(error);
+    setStatus(message);
+    showFeedback({
+      type: "error",
+      title: "분석 실패",
+      message,
+      closeable: true
+    });
   } finally {
     updateActions();
   }
@@ -185,14 +206,34 @@ async function uploadCurrentReceipt() {
 
   elements.uploadButton.disabled = true;
   setStatus("업로드 중입니다.");
+  showFeedback({
+    type: "loading",
+    title: "업로드 중",
+    message: "지출결의 대시보드로 보내고 있습니다.",
+    closeable: false
+  });
 
   try {
     await uploadReceipt(receipt);
     await advanceAfterUpload();
+    showFeedback({
+      type: "success",
+      title: "업로드 완료 ✅",
+      message: "대시보드에 영수증이 등록되었습니다.",
+      closeable: true,
+      autoHideMs: 2200
+    });
   } catch (error) {
     console.error(error);
     queueReceipt(receipt);
+    const message = getUploadFailureMessage(error);
     setStatus("업로드가 실패해 대기열에 저장되었습니다.");
+    showFeedback({
+      type: "error",
+      title: "업로드 실패 ❌",
+      message,
+      closeable: true
+    });
   } finally {
     updateQueueCount();
     updateActions();
@@ -221,6 +262,12 @@ async function retryQueuedUploads() {
   }
 
   setStatus("대기 항목을 업로드 중입니다.");
+  showFeedback({
+    type: "loading",
+    title: "업로드 중",
+    message: "대기 항목을 다시 보내고 있습니다.",
+    closeable: false
+  });
 
   const remaining = [];
   for (const receipt of queue) {
@@ -234,7 +281,24 @@ async function retryQueuedUploads() {
 
   setQueue(remaining);
   updateQueueCount();
-  setStatus(remaining.length === 0 ? "대기 항목이 모두 업로드되었습니다." : "일부 항목이 아직 대기 중입니다.");
+  if (remaining.length === 0) {
+    setStatus("대기 항목이 모두 업로드되었습니다.");
+    showFeedback({
+      type: "success",
+      title: "업로드 완료 ✅",
+      message: "대기 항목이 모두 대시보드에 등록되었습니다.",
+      closeable: true,
+      autoHideMs: 2200
+    });
+  } else {
+    setStatus("일부 항목이 아직 대기 중입니다.");
+    showFeedback({
+      type: "error",
+      title: "업로드 실패 ❌",
+      message: "일부 항목은 아직 업로드되지 않았습니다. 네트워크 상태를 확인한 뒤 다시 눌러 주세요.",
+      closeable: true
+    });
+  }
 }
 
 async function uploadReceipt(receipt) {
@@ -247,7 +311,7 @@ async function uploadReceipt(receipt) {
   });
 
   if (!response.ok) {
-    throw new Error(`Upload failed with ${response.status}`);
+    throw new Error(await getErrorMessage(response, `Upload failed with ${response.status}`));
   }
 
   return response.json().catch(() => ({}));
@@ -274,6 +338,20 @@ function getOcrFailureMessage(error) {
   }
 
   return "분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.";
+}
+
+function getUploadFailureMessage(error) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message.includes("Invalid JSON")) {
+    return "업로드 데이터 전송에 실패했습니다. 앱을 새로고침한 뒤 다시 시도해 주세요.";
+  }
+
+  if (message.includes("expense_requests") || message.includes("column")) {
+    return "대시보드 지출결의 항목 연결을 확인해 주세요.";
+  }
+
+  return "업로드에 실패했습니다. 대기열에 저장했으니 잠시 뒤 다시 시도해 주세요.";
 }
 
 async function normalizeReceiptImage(file, manualRotation) {
@@ -459,6 +537,25 @@ function updateQueueCount() {
 
 function setStatus(message) {
   elements.statusText.textContent = message;
+}
+
+function showFeedback({ type, title, message, closeable, autoHideMs }) {
+  window.clearTimeout(state.feedbackTimer);
+  elements.feedbackDialog.className = `feedback-dialog is-${type}`;
+  elements.feedbackIcon.textContent = type === "success" ? "✓" : type === "error" ? "!" : "";
+  elements.feedbackTitle.textContent = title;
+  elements.feedbackMessage.textContent = message;
+  elements.feedbackCloseButton.hidden = !closeable;
+  elements.feedbackDialog.hidden = false;
+
+  if (autoHideMs) {
+    state.feedbackTimer = window.setTimeout(hideFeedback, autoHideMs);
+  }
+}
+
+function hideFeedback() {
+  window.clearTimeout(state.feedbackTimer);
+  elements.feedbackDialog.hidden = true;
 }
 
 function toDateInputValue(value) {
