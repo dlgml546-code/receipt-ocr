@@ -155,7 +155,7 @@ async function runOcr() {
   showFeedback({
     type: "loading",
     title: "내용 분석 중",
-    message: "영수증 내용을 읽고 있습니다. 잠시만 기다려 주세요.",
+    message: "영수증 내용을 읽고 있습니다.\n잠시만 기다려 주세요.",
     closeable: false
   });
 

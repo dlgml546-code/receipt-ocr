@@ -402,10 +402,27 @@ button:focus-visible {
   grid-column: 1 / -1;
 }
 
+.date-field {
+  border-radius: 8px;
+  background: #e8f3ff;
+  border: 1px solid rgba(49, 130, 246, 0.22);
+  padding: 12px;
+}
+
+.date-field span {
+  color: var(--primary);
+}
+
+.date-field input {
+  background: #ffffff;
+  border-color: rgba(49, 130, 246, 0.24);
+  font-weight: 800;
+}
+
 .confirmation-text {
-  margin: 14px 2px 0;
-  color: var(--subtle);
-  font-size: 14px;
+  margin: 16px 2px 0;
+  color: var(--ink);
+  font-size: 17px;
   font-weight: 700;
   line-height: 1.45;
 }
@@ -484,6 +501,7 @@ button:focus-visible {
   font-size: 15px;
   font-weight: 700;
   line-height: 1.45;
+  white-space: pre-line;
 }
 
 .feedback-dialog .primary-button {
