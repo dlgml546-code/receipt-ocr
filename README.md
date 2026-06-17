@@ -11,7 +11,7 @@ Phone-installable receipt capture app for uploading OCR results into the LUPL fi
 - Lets the user review OCR fields and add required usage content
 - Uploads confirmed receipt data to Supabase Edge Function `receipts`
 - Queues failed uploads locally and retries later
-- Keeps recent upload history on the device
+- Keeps the employee phone flow minimal; upload history belongs in the finance dashboard
 
 ## User Flow
 

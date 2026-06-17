@@ -1,7 +1,6 @@
 const STORAGE_KEYS = {
   deviceId: "receiptOcr.deviceId",
-  queue: "receiptOcr.pendingUploads",
-  history: "receiptOcr.uploadHistory"
+  queue: "receiptOcr.pendingUploads"
 };
 
 const state = {
@@ -33,15 +32,14 @@ const elements = {
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
   usageInput: document.querySelector("#usageInput"),
-  rawTextInput: document.querySelector("#rawTextInput"),
-  historyList: document.querySelector("#historyList"),
-  clearHistoryButton: document.querySelector("#clearHistoryButton")
+  rawTextInput: document.querySelector("#rawTextInput")
 };
 
 init();
 
 function init() {
   ensureDeviceId();
+  removeLegacyDeviceHistory();
   elements.deviceIdText.textContent = shortDeviceId(getDeviceId());
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
@@ -51,11 +49,9 @@ function init() {
   elements.retryButton.addEventListener("click", retryQueuedUploads);
   elements.form.addEventListener("input", updateActions);
   elements.usageInput.addEventListener("input", updateActions);
-  elements.clearHistoryButton.addEventListener("click", clearHistory);
 
   registerServiceWorker();
   updateQueueCount();
-  renderHistory();
   updateActions();
 }
 
@@ -66,6 +62,10 @@ function ensureDeviceId() {
 
   const id = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   localStorage.setItem(STORAGE_KEYS.deviceId, id);
+}
+
+function removeLegacyDeviceHistory() {
+  localStorage.removeItem("receiptOcr.uploadHistory");
 }
 
 async function handleFileSelection(event) {
@@ -187,17 +187,14 @@ async function uploadCurrentReceipt() {
   setStatus("업로드 중입니다.");
 
   try {
-    const result = await uploadReceipt(receipt);
-    addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
+    await uploadReceipt(receipt);
     await advanceAfterUpload();
   } catch (error) {
     console.error(error);
     queueReceipt(receipt);
-    addHistory({ ...receipt, remoteId: null, uploadStatus: "queued" });
     setStatus("업로드가 실패해 대기열에 저장되었습니다.");
   } finally {
     updateQueueCount();
-    renderHistory();
     updateActions();
   }
 }
@@ -228,8 +225,7 @@ async function retryQueuedUploads() {
   const remaining = [];
   for (const receipt of queue) {
     try {
-      const result = await uploadReceipt(receipt);
-      addHistory({ ...receipt, remoteId: result.id || null, uploadStatus: "uploaded" });
+      await uploadReceipt(receipt);
     } catch (error) {
       console.error(error);
       remaining.push(receipt);
@@ -238,7 +234,6 @@ async function retryQueuedUploads() {
 
   setQueue(remaining);
   updateQueueCount();
-  renderHistory();
   setStatus(remaining.length === 0 ? "대기 항목이 모두 업로드되었습니다." : "일부 항목이 아직 대기 중입니다.");
 }
 
@@ -439,61 +434,6 @@ function updateQueueCount() {
   elements.queueCount.textContent = String(getQueue().length);
 }
 
-function addHistory(item) {
-  const history = getHistory();
-  history.unshift({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    savedAt: new Date().toISOString(),
-    merchant: item.merchant,
-    purchasedAt: item.purchasedAt,
-    totalAmount: item.totalAmount,
-    usageContent: item.usageContent,
-    deviceId: item.deviceId,
-    remoteId: item.remoteId,
-    uploadStatus: item.uploadStatus
-  });
-  localStorage.setItem(STORAGE_KEYS.history, JSON.stringify(history.slice(0, 80)));
-}
-
-function getHistory() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEYS.history) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function renderHistory() {
-  const history = getHistory();
-  if (history.length === 0) {
-    elements.historyList.innerHTML = '<p class="empty-text">아직 저장된 업로드 내역이 없습니다.</p>';
-    return;
-  }
-
-  elements.historyList.innerHTML = history
-    .slice(0, 12)
-    .map((item) => {
-      const status = item.uploadStatus === "uploaded" ? "업로드 완료" : "대기 중";
-      const amount = item.totalAmount != null ? `${Number(item.totalAmount).toLocaleString("ko-KR")}원` : "-";
-      return `
-        <article class="history-item">
-          <div>
-            <strong>${escapeHtml(item.usageContent || item.merchant || "영수증")}</strong>
-            <span>${escapeHtml(item.merchant || "-")} · ${escapeHtml(item.purchasedAt || "-")} · ${amount}</span>
-          </div>
-          <em>${status}</em>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function clearHistory() {
-  localStorage.removeItem(STORAGE_KEYS.history);
-  renderHistory();
-  setStatus("기기 내 업로드 내역을 비웠습니다.");
-}
-
 function setStatus(message) {
   elements.statusText.textContent = message;
 }
@@ -527,15 +467,6 @@ function numberOrNull(value) {
 
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function registerServiceWorker() {
