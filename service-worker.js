@@ -1,4 +1,4 @@
-const CACHE_NAME = "receipt-ocr-pwa-v8";
+const CACHE_NAME = "receipt-ocr-pwa-v9";
 const APP_SHELL = [
   "./",
   "./index.html",

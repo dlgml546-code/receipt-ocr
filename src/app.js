@@ -2,6 +2,8 @@ const STORAGE_KEYS = {
   deviceId: "receiptOcr.deviceId",
   queue: "receiptOcr.pendingUploads"
 };
+const MAX_RECEIPT_IMAGE_SIDE = 1800;
+const RECEIPT_IMAGE_QUALITY = 0.82;
 
 const state = {
   items: [],
@@ -337,6 +339,10 @@ function getOcrFailureMessage(error) {
     return "영수증 이미지를 다시 선택해 주세요.";
   }
 
+  if (message.includes("image could not be processed")) {
+    return "사진을 처리하지 못했습니다. 영수증을 화면에 꽉 차게 다시 촬영해 주세요.";
+  }
+
   return "분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.";
 }
 
@@ -358,19 +364,27 @@ async function normalizeReceiptImage(file, manualRotation) {
   const image = await loadDrawableImage(file);
   const autoRotation = image.width > image.height ? 90 : 0;
   const rotation = (autoRotation + manualRotation) % 360;
-
+  const rotatedSideways = rotation === 90 || rotation === 270;
+  const orientedWidth = rotatedSideways ? image.height : image.width;
+  const orientedHeight = rotatedSideways ? image.width : image.height;
+  const scale = Math.min(1, MAX_RECEIPT_IMAGE_SIDE / Math.max(orientedWidth, orientedHeight));
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
-  const rotatedSideways = rotation === 90 || rotation === 270;
 
-  canvas.width = rotatedSideways ? image.height : image.width;
-  canvas.height = rotatedSideways ? image.width : image.height;
+  canvas.width = Math.round(orientedWidth * scale);
+  canvas.height = Math.round(orientedHeight * scale);
 
   context.translate(canvas.width / 2, canvas.height / 2);
   context.rotate((rotation * Math.PI) / 180);
-  context.drawImage(image.source, -image.width / 2, -image.height / 2);
+  context.drawImage(
+    image.source,
+    -(image.width * scale) / 2,
+    -(image.height * scale) / 2,
+    image.width * scale,
+    image.height * scale
+  );
 
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", RECEIPT_IMAGE_QUALITY));
   if (!blob) {
     return file;
   }

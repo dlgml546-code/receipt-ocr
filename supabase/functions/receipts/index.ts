@@ -216,6 +216,10 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
       throw new Error("OpenAI API key is invalid or unauthorized.");
     }
 
+    if (aiResponse.status === 400 || aiResponse.status === 413) {
+      throw new Error("OpenAI OCR request failed because the image could not be processed.");
+    }
+
     throw new Error(`OpenAI OCR request failed with status ${aiResponse.status}.`);
   }
 
