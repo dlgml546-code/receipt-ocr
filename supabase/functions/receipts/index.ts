@@ -86,7 +86,12 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
   const body = await req.json();
   const storagePath = cleanString(body.attachmentId);
   const deviceId = cleanString(body.deviceId);
-  const deviceOwner = cleanString(body.deviceOwner) || cleanString(body.submittedBy) || "미등록 기기";
+  const deviceOwner =
+    await findDeviceOwner(supabase, deviceId)
+    || cleanString(body.deviceOwner)
+    || cleanString(body.submittedBy)
+    || "미등록 기기";
+  await rememberDevice(supabase, deviceId, deviceOwner);
   let fileUrl: string | null = null;
 
   if (storagePath) {
@@ -103,6 +108,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     purpose,
     usage: mapUsage(body.category),
     payment_method: "카드",
+    category: mapLegacyExpenseCategory(body.category),
     amount,
     evidence_status: storagePath ? "영수증 첨부" : "증빙 필요",
     transfer_status: "해당 없음",
@@ -117,7 +123,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     ocr_total_amount: amount || null,
     ocr_transaction_date: usedAt,
     is_recurring: false,
-    memo: buildMemo(body, deviceOwner, deviceId, storagePath, fileUrl)
+    memo: cleanString(body.memo)
   };
 
   const { data: expense, error: expenseError } = await insertWithColumnHealing(
@@ -229,26 +235,9 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
 }
 
 function buildMemo(
-  body: Record<string, unknown>,
-  deviceOwner: string,
-  deviceId: string | null,
-  storagePath: string | null,
-  fileUrl: string | null
+  body: Record<string, unknown>
 ) {
-  const lines = [
-    `업로드 기기 소유자: ${deviceOwner}`,
-    deviceId ? `기기 ID: ${deviceId}` : "",
-    cleanString(body.merchant) ? `OCR 가맹점: ${cleanString(body.merchant)}` : "",
-    cleanString(body.purchasedAt) ? `OCR 사용일: ${cleanString(body.purchasedAt)}` : "",
-    normalizeAmount(body.totalAmount) ? `OCR 총액: ${formatWon(normalizeAmount(body.totalAmount))}` : "",
-    storagePath ? `영수증 저장 경로: ${storagePath}` : "",
-    fileUrl ? `영수증 보기: ${fileUrl}` : "",
-    cleanString(body.rawText) ? `OCR 원문: ${cleanString(body.rawText)}` : "",
-    cleanString(body.source) ? `등록 경로: ${cleanString(body.source)}` : "",
-    body.batchIndex && body.batchTotal ? `묶음: ${body.batchIndex}/${body.batchTotal}` : ""
-  ].filter(Boolean);
-
-  return lines.join("\n") || null;
+  return cleanString(body.memo);
 }
 
 function mapUsage(category: unknown) {
@@ -262,6 +251,62 @@ function mapUsage(category: unknown) {
   };
 
   return value ? map[value] || "운영비" : "운영비";
+}
+
+function mapLegacyExpenseCategory(category: unknown) {
+  const usage = mapUsage(category);
+  const map: Record<string, string> = {
+    "여비·출장비": "여비교통비",
+    "업무 추진비": "운영비",
+    "내부 사업비": "내부 사업비",
+    "외부 사업비(외주용역)": "외부 사업비",
+    "복리후생비": "운영비",
+    "운영비": "운영비",
+    "차량비": "운영비",
+    "홍보비(광고비)": "운영비",
+    "자산취득비(비품 구입 등)": "운영비"
+  };
+
+  return map[usage] || "운영비";
+}
+
+async function findDeviceOwner(supabase: ReturnType<typeof createClient>, deviceId: string | null) {
+  if (!deviceId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("mobile_receipt_devices")
+      .select("owner_name,is_active")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (error || !data || data.is_active === false) return null;
+    return cleanString(data.owner_name);
+  } catch {
+    return null;
+  }
+}
+
+async function rememberDevice(supabase: ReturnType<typeof createClient>, deviceId: string | null, ownerName: string | null) {
+  if (!deviceId) return;
+
+  try {
+    const { data } = await supabase
+      .from("mobile_receipt_devices")
+      .select("device_id")
+      .eq("device_id", deviceId)
+      .maybeSingle();
+
+    if (data) return;
+
+    await supabase.from("mobile_receipt_devices").insert({
+      device_id: deviceId,
+      owner_name: ownerName || "미등록 기기",
+      is_active: true
+    });
+  } catch {
+    // The finance DB may not have the optional management table yet.
+  }
 }
 
 async function insertWithColumnHealing(

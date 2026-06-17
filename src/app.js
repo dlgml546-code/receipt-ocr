@@ -220,7 +220,7 @@ async function uploadCurrentReceipt() {
     await advanceAfterUpload();
     showFeedback({
       type: "success",
-      title: "업로드 완료 ✅",
+      title: "업로드 완료",
       message: "대시보드에 영수증이 등록되었습니다.",
       closeable: true,
       autoHideMs: 2200
@@ -287,7 +287,7 @@ async function retryQueuedUploads() {
     setStatus("대기 항목이 모두 업로드되었습니다.");
     showFeedback({
       type: "success",
-      title: "업로드 완료 ✅",
+      title: "업로드 완료",
       message: "대기 항목이 모두 대시보드에 등록되었습니다.",
       closeable: true,
       autoHideMs: 2200

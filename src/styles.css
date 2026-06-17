@@ -403,6 +403,10 @@ button:focus-visible {
 }
 
 .date-field {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   border-radius: 8px;
   background: #e8f3ff;
   border: 1px solid rgba(49, 130, 246, 0.22);
@@ -414,8 +418,15 @@ button:focus-visible {
 }
 
 .date-field input {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
   background: #ffffff;
   border-color: rgba(49, 130, 246, 0.24);
+  padding-left: 12px;
+  padding-right: 12px;
   font-weight: 800;
 }
 
