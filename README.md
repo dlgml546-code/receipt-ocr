@@ -35,7 +35,7 @@ For phone testing on the same network, serve it from the machine LAN address and
 Open the app and set the dashboard API base URL, for example:
 
 ```text
-https://dashboard.example.com/api
+https://PROJECT_REF.supabase.co/functions/v1
 ```
 
 The app currently calls the dashboard API contract below. The dashboard backend must implement these endpoints for real expense approval integration:
@@ -55,6 +55,22 @@ The upload payload includes:
 - OCR fields such as merchant, date, total amount, tax, category, and raw text
 - `usageContent`, which is required before upload
 - `batchIndex` and `batchTotal` when multiple receipts are selected
+
+## Supabase setup
+
+In the dashboard repository, deploy the `receipts` Edge Function:
+
+```powershell
+supabase functions deploy receipts
+supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_연동키
+```
+
+The phone app settings should use:
+
+```text
+API: https://PROJECT_REF.supabase.co/functions/v1
+연동 키: the same MOBILE_RECEIPT_API_KEY
+```
 
 ## Deployment
 

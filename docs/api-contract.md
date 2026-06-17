@@ -3,7 +3,13 @@
 Set the app API base URL to the management dashboard API root, for example:
 
 ```text
-https://dashboard.example.com/api
+https://PROJECT_REF.supabase.co/functions/v1
+```
+
+Every request should include:
+
+```http
+x-receipt-api-key: <MOBILE_RECEIPT_API_KEY>
 ```
 
 ## OCR endpoint
@@ -42,6 +48,12 @@ The app also accepts the fields at the top level if `receipt` is omitted.
 ## Upload endpoint
 
 This endpoint should create or attach a receipt to the dashboard expense approval flow.
+
+When using Supabase Edge Functions, deploy a function named `receipts` and set the app API base to:
+
+```text
+https://PROJECT_REF.supabase.co/functions/v1
+```
 
 ```http
 POST /receipts

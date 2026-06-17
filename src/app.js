@@ -1,5 +1,6 @@
 const STORAGE_KEYS = {
   apiBase: "receiptOcr.apiBase",
+  apiKey: "receiptOcr.apiKey",
   queue: "receiptOcr.pendingUploads"
 };
 
@@ -14,6 +15,7 @@ const state = {
 
 const elements = {
   apiBaseInput: document.querySelector("#apiBaseInput"),
+  apiKeyInput: document.querySelector("#apiKeyInput"),
   saveSettingsButton: document.querySelector("#saveSettingsButton"),
   cameraInput: document.querySelector("#cameraInput"),
   albumInput: document.querySelector("#albumInput"),
@@ -40,6 +42,7 @@ init();
 
 function init() {
   elements.apiBaseInput.value = localStorage.getItem(STORAGE_KEYS.apiBase) || "";
+  elements.apiKeyInput.value = localStorage.getItem(STORAGE_KEYS.apiKey) || "";
   elements.saveSettingsButton.addEventListener("click", saveSettings);
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
@@ -57,9 +60,11 @@ function init() {
 
 function saveSettings() {
   const apiBase = normalizeApiBase(elements.apiBaseInput.value);
+  const apiKey = elements.apiKeyInput.value.trim();
   elements.apiBaseInput.value = apiBase;
   localStorage.setItem(STORAGE_KEYS.apiBase, apiBase);
-  setStatus(apiBase ? "연동 설정이 저장되었습니다." : "API 주소가 비어 있습니다.");
+  localStorage.setItem(STORAGE_KEYS.apiKey, apiKey);
+  setStatus(apiBase && apiKey ? "연동 설정이 저장되었습니다." : "API 주소와 연동 키를 확인해 주세요.");
   updateActions();
 }
 
@@ -130,14 +135,15 @@ async function rotateCurrentReceipt() {
 
 async function runOcr() {
   const apiBase = getApiBase();
+  const apiKey = getApiKey();
   if (!state.selectedFile) {
     setStatus("먼저 영수증을 촬영하거나 앨범에서 선택해 주세요.");
     updateActions();
     return;
   }
 
-  if (!apiBase) {
-    setStatus("분석하려면 경영관리 대시보드 API 주소를 저장해야 합니다.");
+  if (!apiBase || !apiKey) {
+    setStatus("분석하려면 경영관리 대시보드 API 주소와 연동 키를 저장해야 합니다.");
     updateActions();
     return;
   }
@@ -154,6 +160,7 @@ async function runOcr() {
 
     const response = await fetch(`${apiBase}/receipts/ocr`, {
       method: "POST",
+      headers: buildAuthHeaders(),
       body: formData
     });
 
@@ -248,7 +255,8 @@ async function uploadReceipt(apiBase, receipt) {
   const response = await fetch(`${apiBase}/receipts`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      ...buildAuthHeaders()
     },
     body: JSON.stringify(receipt)
   });
@@ -396,7 +404,7 @@ function hasMinimumReceiptFields(receipt) {
 }
 
 function updateActions() {
-  const hasApi = Boolean(getApiBase());
+  const hasApi = Boolean(getApiBase() && getApiKey());
   const receipt = buildReceiptPayload();
   elements.ocrButton.disabled = !state.selectedFile;
   elements.uploadButton.disabled = !hasApi || !hasMinimumReceiptFields(receipt);
@@ -413,6 +421,16 @@ function updateBatchText() {
 
 function getApiBase() {
   return normalizeApiBase(elements.apiBaseInput.value || localStorage.getItem(STORAGE_KEYS.apiBase) || "");
+}
+
+function getApiKey() {
+  return elements.apiKeyInput.value.trim() || localStorage.getItem(STORAGE_KEYS.apiKey) || "";
+}
+
+function buildAuthHeaders() {
+  return {
+    "x-receipt-api-key": getApiKey()
+  };
 }
 
 function normalizeApiBase(value) {
