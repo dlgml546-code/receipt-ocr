@@ -117,36 +117,39 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     ocr_total_amount: amount || null,
     ocr_transaction_date: usedAt,
     is_recurring: false,
-    memo: buildMemo(body, deviceOwner, deviceId)
+    memo: buildMemo(body, deviceOwner, deviceId, storagePath, fileUrl)
   };
 
-  const { data: expense, error: expenseError } = await supabase
-    .from("expense_requests")
-    .insert(expensePayload)
-    .select("id,purpose,amount,review_reason")
-    .single();
+  const { data: expense, error: expenseError } = await insertWithColumnHealing(
+    supabase,
+    "expense_requests",
+    expensePayload,
+    "id"
+  );
 
   if (expenseError) {
     return json({ error: expenseError.message }, 500);
   }
 
-  const { error: reviewError } = await supabase.from("review_items").insert({
+  const reviewPayload = {
     area: "지출결의",
-    title: expense.purpose,
-    reason: expense.review_reason || "지출결의 확인",
-    amount_or_impact: formatWon(expense.amount),
+    title: purpose,
+    reason: "모바일 영수증 OCR 등록 확인",
+    amount_or_impact: formatWon(amount),
     owner_label: deviceOwner,
     status: "검토 전",
     target_table: "expense_requests",
-    target_id: expense.id,
+    target_id: expense?.id,
     checklist: "증빙 첨부 여부, 사용 용도, 결제수단, 금액, 사용 내용을 확인하세요."
-  });
+  };
+
+  const { error: reviewError } = await insertWithColumnHealing(supabase, "review_items", reviewPayload);
 
   if (reviewError) {
     return json({ error: reviewError.message }, 500);
   }
 
-  return json({ id: expense.id, status: "uploaded", deviceOwner, deviceId });
+  return json({ id: expense?.id || null, status: "uploaded", deviceOwner, deviceId });
 }
 
 async function runOcr(storagePath: string, supabase: ReturnType<typeof createClient>) {
@@ -221,10 +224,21 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
   return normalizeReceiptResult(JSON.parse(content));
 }
 
-function buildMemo(body: Record<string, unknown>, deviceOwner: string, deviceId: string | null) {
+function buildMemo(
+  body: Record<string, unknown>,
+  deviceOwner: string,
+  deviceId: string | null,
+  storagePath: string | null,
+  fileUrl: string | null
+) {
   const lines = [
     `업로드 기기 소유자: ${deviceOwner}`,
     deviceId ? `기기 ID: ${deviceId}` : "",
+    cleanString(body.merchant) ? `OCR 가맹점: ${cleanString(body.merchant)}` : "",
+    cleanString(body.purchasedAt) ? `OCR 사용일: ${cleanString(body.purchasedAt)}` : "",
+    normalizeAmount(body.totalAmount) ? `OCR 총액: ${formatWon(normalizeAmount(body.totalAmount))}` : "",
+    storagePath ? `영수증 저장 경로: ${storagePath}` : "",
+    fileUrl ? `영수증 보기: ${fileUrl}` : "",
     cleanString(body.rawText) ? `OCR 원문: ${cleanString(body.rawText)}` : "",
     cleanString(body.source) ? `등록 경로: ${cleanString(body.source)}` : "",
     body.batchIndex && body.batchTotal ? `묶음: ${body.batchIndex}/${body.batchTotal}` : ""
@@ -244,6 +258,44 @@ function mapUsage(category: unknown) {
   };
 
   return value ? map[value] || "운영비" : "운영비";
+}
+
+async function insertWithColumnHealing(
+  supabase: ReturnType<typeof createClient>,
+  tableName: string,
+  payload: Record<string, unknown>,
+  selectColumns?: string
+) {
+  let nextPayload = { ...payload };
+  const removedColumns = new Set<string>();
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const query = supabase.from(tableName).insert(nextPayload);
+    const result = selectColumns ? await query.select(selectColumns).single() : await query;
+
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = parseMissingColumn(result.error.message);
+    if (!missingColumn || removedColumns.has(missingColumn) || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    removedColumns.add(missingColumn);
+    const { [missingColumn]: _unused, ...rest } = nextPayload;
+    nextPayload = rest;
+  }
+
+  return {
+    data: null,
+    error: new Error(`Failed to insert ${tableName} after removing incompatible columns.`)
+  };
+}
+
+function parseMissingColumn(message: string) {
+  const match = message.match(/'([^']+)' column/);
+  return match?.[1] || null;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer) {
