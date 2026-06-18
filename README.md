@@ -8,7 +8,8 @@ Phone-installable receipt capture app for uploading OCR results into the LUPL fi
 - Supports selecting multiple receipt images from the photo album
 - Normalizes receipt images before OCR and auto-rotates landscape images to portrait
 - Sends images through Vercel serverless API routes, so Supabase keys are never shown in the browser
-- Lets the user review OCR fields and add required usage content
+- Lets the user review OCR fields, choose an expense subcategory, and confirm the payment method
+- Sends personal-card receipts to expense approval as month-end reimbursement transfer requests
 - Uploads confirmed receipt data to Supabase Edge Function `receipts`
 - Queues failed uploads locally and retries later
 - Keeps the employee phone flow minimal; upload history belongs in the finance dashboard
@@ -20,7 +21,7 @@ Employees do not enter API URLs or keys.
 1. Open the PWA
 2. Capture or select a receipt
 3. Wait for OCR analysis
-4. Enter usage content
+4. Choose the expense subcategory and payment method
 5. Upload
 
 The app sends a stable local `deviceId` with every upload. The finance dashboard can later map that device ID to an employee.
@@ -56,10 +57,12 @@ Register required Supabase secrets:
 ```powershell
 npx.cmd supabase secrets set MOBILE_RECEIPT_API_KEY="your-long-random-key" --project-ref iocdligckxakvvbjldkz
 npx.cmd supabase secrets set OPENAI_API_KEY="your-real-openai-api-key" --project-ref iocdligckxakvvbjldkz
+npx.cmd supabase secrets set CORPORATE_CARD_LAST4S="1234,5678" --project-ref iocdligckxakvvbjldkz
 ```
 
 Do not put `MOBILE_RECEIPT_API_KEY`, `OPENAI_API_KEY`, or service role keys in browser code.
 If OCR returns `OpenAI API key is invalid or unauthorized`, replace the Supabase `OPENAI_API_KEY` secret with a real active OpenAI API key.
+`CORPORATE_CARD_LAST4S` is optional, but setting it lets OCR-recognized card endings automatically mark receipts as corporate-card expenses.
 
 ## Local Development
 

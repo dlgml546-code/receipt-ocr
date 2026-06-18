@@ -39,7 +39,9 @@ Example response:
     "totalAmount": 12800,
     "taxAmount": 1164,
     "currency": "KRW",
-    "category": "meals",
+    "category": "외부 미팅 식대",
+    "paymentMethod": "corporate_card",
+    "cardLast4": "1234",
     "rawText": "..."
   },
   "attachmentId": "att_123"
@@ -64,6 +66,7 @@ Deployment from this repository:
 supabase functions deploy receipts --project-ref PROJECT_REF --no-verify-jwt
 supabase secrets set MOBILE_RECEIPT_API_KEY=긴_랜덤_키 --project-ref PROJECT_REF
 supabase secrets set OPENAI_API_KEY=실제_OPENAI_API_KEY --project-ref PROJECT_REF
+supabase secrets set CORPORATE_CARD_LAST4S=1234,5678 --project-ref PROJECT_REF
 ```
 
 ```http
@@ -80,7 +83,11 @@ Example request:
   "totalAmount": 12800,
   "taxAmount": 1164,
   "currency": "KRW",
-  "category": "meals",
+  "category": "외부 미팅 식대",
+  "usageCategory": "업무 추진비",
+  "paymentMethod": "personal_card",
+  "paymentMethodLabel": "개인 카드",
+  "cardLast4": "9876",
   "usageContent": "Client meeting refreshments",
   "rawText": "...",
   "attachmentId": "att_123",

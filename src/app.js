@@ -4,6 +4,24 @@ const STORAGE_KEYS = {
 };
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
+const DEFAULT_SUBCATEGORY = "정기구독";
+const PAYMENT_METHOD_LABELS = {
+  corporate_card: "법인 카드",
+  personal_card: "개인 카드",
+  corporate_transfer: "법인 계좌이체",
+  transfer_request: "이체 요청"
+};
+const EXPENSE_SUBCATEGORY_TREE = {
+  "여비·출장비": ["교통비", "유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
+  "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
+  "내부 사업비": ["교육 재료비", "행사 다과", "행사 식대", "인쇄·출력", "운반비", "촬영·편집", "작가·강사료", "기타 내부사업비"],
+  "외부 사업비(외주용역)": ["외주 강사료", "외주 재료비", "외주 인쇄·출력", "외주 행사 다과", "외주 운반비", "외주 촬영·편집", "기타 외주용역비"],
+  "복리후생비": ["직원 식대", "직원 간식", "회식비", "워크샵", "복지 소모품", "경조사", "기타 복리후생비"],
+  "운영비": ["정기구독", "소모품", "사무용품", "서류 발급", "우편·택배", "통신비", "소프트웨어", "서버·도메인", "기타 운영비"],
+  "차량비": ["차량 유류비", "차량 소모품", "정비비", "차량 주차비", "차량 통행료", "보험료", "기타 차량비"],
+  "홍보비(광고비)": ["온라인 광고", "SNS 광고", "인쇄 홍보물", "촬영·콘텐츠", "홍보 대행", "기타 홍보비"],
+  "자산취득비": ["비품 구입", "장비 구입", "가구", "전자기기", "소프트웨어 라이선스", "기타 자산취득"]
+};
 
 const state = {
   items: [],
@@ -34,6 +52,10 @@ const elements = {
   taxInput: document.querySelector("#taxInput"),
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
+  usageMajorText: document.querySelector("#usageMajorText"),
+  paymentMethodInput: document.querySelector("#paymentMethodInput"),
+  cardLast4Input: document.querySelector("#cardLast4Input"),
+  paymentNotice: document.querySelector("#paymentNotice"),
   usageInput: document.querySelector("#usageInput"),
   rawTextInput: document.querySelector("#rawTextInput"),
   feedbackDialog: document.querySelector("#feedbackDialog"),
@@ -48,6 +70,7 @@ init();
 function init() {
   ensureDeviceId();
   removeLegacyDeviceHistory();
+  populateSubcategoryOptions();
   elements.deviceIdText.textContent = shortDeviceId(getDeviceId());
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
@@ -57,9 +80,14 @@ function init() {
   elements.retryButton.addEventListener("click", retryQueuedUploads);
   elements.form.addEventListener("input", updateActions);
   elements.usageInput.addEventListener("input", updateActions);
+  elements.categoryInput.addEventListener("change", handleCategoryChange);
+  elements.paymentMethodInput.addEventListener("change", handlePaymentMethodChange);
+  elements.cardLast4Input.addEventListener("input", handleCardLast4Input);
   elements.feedbackCloseButton.addEventListener("click", hideFeedback);
 
   registerServiceWorker();
+  handleCategoryChange();
+  handlePaymentMethodChange();
   updateQueueCount();
   updateActions();
 }
@@ -180,7 +208,7 @@ async function runOcr() {
     const receipt = normalizeReceipt(payload);
     state.attachmentId = payload.attachmentId || receipt.attachmentId || "";
     fillReceiptFields(receipt);
-    setStatus("분석 결과가 반영되었습니다. 사용 내용을 입력하고 확인해 주세요.");
+    setStatus("분석 결과가 반영되었습니다. 소분류와 결제 방식을 확인해 주세요.");
     hideFeedback();
   } catch (error) {
     console.error(error);
@@ -201,7 +229,7 @@ async function uploadCurrentReceipt() {
   const receipt = buildReceiptPayload();
 
   if (!hasMinimumReceiptFields(receipt)) {
-    setStatus("가맹점, 사용일, 총액, 사용 내용을 모두 확인해 주세요.");
+    setStatus("가맹점, 사용일, 총액, 지출 소분류를 모두 확인해 주세요.");
     updateActions();
     return;
   }
@@ -433,7 +461,9 @@ function normalizeReceipt(payload) {
     totalAmount: numberOrEmpty(receipt.totalAmount || receipt.total || receipt.amount),
     taxAmount: numberOrEmpty(receipt.taxAmount || receipt.tax || ""),
     currency: receipt.currency || "KRW",
-    category: receipt.category || "general",
+    category: normalizeSubcategory(receipt.category || DEFAULT_SUBCATEGORY),
+    paymentMethod: receipt.paymentMethod || receipt.payment_method || "corporate_card",
+    cardLast4: normalizeCardLast4(receipt.cardLast4 || receipt.card_last4 || ""),
     rawText: receipt.rawText || receipt.text || "",
     attachmentId: receipt.attachmentId || ""
   };
@@ -445,8 +475,12 @@ function fillReceiptFields(receipt) {
   elements.totalInput.value = receipt.totalAmount;
   elements.taxInput.value = receipt.taxAmount;
   elements.currencyInput.value = receipt.currency;
-  elements.categoryInput.value = receipt.category;
+  setSelectValue(elements.categoryInput, receipt.category || DEFAULT_SUBCATEGORY);
+  setSelectValue(elements.paymentMethodInput, receipt.paymentMethod || "corporate_card");
+  elements.cardLast4Input.value = receipt.cardLast4;
   elements.rawTextInput.value = receipt.rawText;
+  handleCategoryChange();
+  handlePaymentMethodChange();
 }
 
 function buildReceiptPayload() {
@@ -457,6 +491,10 @@ function buildReceiptPayload() {
     taxAmount: numberOrNull(elements.taxInput.value),
     currency: elements.currencyInput.value,
     category: elements.categoryInput.value,
+    usageCategory: getUsageFromSubcategory(elements.categoryInput.value),
+    paymentMethod: elements.paymentMethodInput.value,
+    paymentMethodLabel: PAYMENT_METHOD_LABELS[elements.paymentMethodInput.value] || elements.paymentMethodInput.value,
+    cardLast4: normalizeCardLast4(elements.cardLast4Input.value),
     usageContent: elements.usageInput.value.trim(),
     rawText: elements.rawTextInput.value.trim(),
     attachmentId: state.attachmentId,
@@ -473,7 +511,11 @@ function buildReceiptPayload() {
 function clearReceiptFields() {
   elements.form.reset();
   elements.currencyInput.value = "KRW";
-  elements.categoryInput.value = "general";
+  elements.categoryInput.value = DEFAULT_SUBCATEGORY;
+  elements.paymentMethodInput.value = "corporate_card";
+  elements.cardLast4Input.value = "";
+  handleCategoryChange();
+  handlePaymentMethodChange();
 }
 
 function clearAfterUpload() {
@@ -501,7 +543,7 @@ function clearPreviewUrl() {
 }
 
 function hasMinimumReceiptFields(receipt) {
-  return Boolean(receipt.merchant && receipt.purchasedAt && receipt.totalAmount !== null && receipt.usageContent);
+  return Boolean(receipt.merchant && receipt.purchasedAt && receipt.totalAmount !== null && receipt.category);
 }
 
 function updateActions() {
@@ -547,6 +589,75 @@ function setQueue(queue) {
 
 function updateQueueCount() {
   elements.queueCount.textContent = String(getQueue().length);
+}
+
+function populateSubcategoryOptions() {
+  elements.categoryInput.innerHTML = "";
+  for (const [major, subcategories] of Object.entries(EXPENSE_SUBCATEGORY_TREE)) {
+    const group = document.createElement("optgroup");
+    group.label = major;
+    for (const subcategory of subcategories) {
+      const option = document.createElement("option");
+      option.value = subcategory;
+      option.textContent = subcategory;
+      group.appendChild(option);
+    }
+    elements.categoryInput.appendChild(group);
+  }
+  elements.categoryInput.value = DEFAULT_SUBCATEGORY;
+}
+
+function handleCategoryChange() {
+  const major = getUsageFromSubcategory(elements.categoryInput.value);
+  elements.usageMajorText.textContent = major ? `대분류: ${major}` : "대분류 자동 계산";
+  updateActions();
+}
+
+function handlePaymentMethodChange() {
+  if (elements.paymentMethodInput.value === "personal_card") {
+    elements.paymentNotice.hidden = false;
+    elements.paymentNotice.textContent = "개인 카드 사용분은 월 말 일괄 정산됩니다. 지출결의에는 이체 요청으로 올라갑니다.";
+  } else if (elements.paymentMethodInput.value === "transfer_request") {
+    elements.paymentNotice.hidden = false;
+    elements.paymentNotice.textContent = "아직 결제가 필요한 항목으로 등록되어 지출결의에서 이체 요청으로 검토됩니다.";
+  } else {
+    elements.paymentNotice.hidden = true;
+    elements.paymentNotice.textContent = "";
+  }
+  updateActions();
+}
+
+function handleCardLast4Input() {
+  elements.cardLast4Input.value = normalizeCardLast4(elements.cardLast4Input.value);
+}
+
+function getUsageFromSubcategory(subcategory) {
+  for (const [major, subcategories] of Object.entries(EXPENSE_SUBCATEGORY_TREE)) {
+    if (subcategories.includes(subcategory)) {
+      return major;
+    }
+  }
+  return "";
+}
+
+function normalizeSubcategory(value) {
+  const legacyMap = {
+    meals: "외부 미팅 식대",
+    transport: "교통비",
+    supplies: "소모품",
+    lodging: "숙박비",
+    general: DEFAULT_SUBCATEGORY
+  };
+  return legacyMap[value] || value || DEFAULT_SUBCATEGORY;
+}
+
+function setSelectValue(select, value) {
+  const hasOption = Array.from(select.options).some((option) => option.value === value);
+  select.value = hasOption ? value : select.options[0]?.value || "";
+}
+
+function normalizeCardLast4(value) {
+  return String(value || "").replace(/\D/g, "").slice(-4);
 }
 
 function setStatus(message) {

@@ -49,10 +49,31 @@
         <button id="uploadButton" class="primary-button" type="button" disabled>업로드</button>
       </section>
 
-      <section class="usage-panel" aria-label="사용 내용">
+      <section class="usage-panel" aria-label="지출 분류와 결제 방식">
         <label class="field">
-          <span>사용 내용 <strong>필수</strong></span>
-          <textarea id="usageInput" name="usageContent" rows="3" required placeholder="예: 거래처 미팅 다과 구입"></textarea>
+          <span>지출 소분류 <strong>필수</strong></span>
+          <select id="categoryInput" name="category" required></select>
+        </label>
+        <div class="usage-major" id="usageMajorText">대분류 자동 계산</div>
+        <div class="payment-grid">
+          <label class="field">
+            <span>결제 방식</span>
+            <select id="paymentMethodInput" name="paymentMethod">
+              <option value="corporate_card">법인 카드</option>
+              <option value="personal_card">개인 카드</option>
+              <option value="corporate_transfer">법인 계좌이체</option>
+              <option value="transfer_request">이체 요청</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>카드 뒷자리</span>
+            <input id="cardLast4Input" name="cardLast4" inputmode="numeric" maxlength="4" placeholder="자동 인식" />
+          </label>
+        </div>
+        <p id="paymentNotice" class="payment-notice" hidden></p>
+        <label class="field">
+          <span>메모</span>
+          <textarea id="usageInput" name="usageContent" rows="3" placeholder="예: 거래처 미팅 다과 구입"></textarea>
         </label>
       </section>
 
@@ -89,16 +110,6 @@
               <option value="USD">USD</option>
               <option value="JPY">JPY</option>
               <option value="EUR">EUR</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>분류</span>
-            <select id="categoryInput" name="category">
-              <option value="general">일반</option>
-              <option value="meals">식비</option>
-              <option value="transport">교통</option>
-              <option value="supplies">비품</option>
-              <option value="lodging">숙박</option>
             </select>
           </label>
           <label class="field full">
