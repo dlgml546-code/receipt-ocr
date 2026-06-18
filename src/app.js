@@ -1,10 +1,12 @@
 const STORAGE_KEYS = {
   deviceId: "receiptOcr.deviceId",
-  queue: "receiptOcr.pendingUploads"
+  queue: "receiptOcr.pendingUploads",
+  categoryStats: "receiptOcr.categoryStats"
 };
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
 const DEFAULT_SUBCATEGORY = "정기구독";
+const MAX_QUICK_SUBCATEGORIES = 5;
 const PAYMENT_METHOD_LABELS = {
   card: "카드",
   transfer: "계좌이체",
@@ -13,7 +15,7 @@ const PAYMENT_METHOD_LABELS = {
   corporate_transfer: "계좌이체",
   transfer_request: "계좌이체"
 };
-const QUICK_SUBCATEGORIES = ["외부 미팅 식대", "직원 식대", "차량 유류비", "교통비", "주차비", "정기구독", "소모품", "사무용품"];
+const DEFAULT_QUICK_SUBCATEGORIES = ["외부 미팅 식대", "차량 유류비", "교통비", "정기구독", "사무용품"];
 const EXPENSE_SUBCATEGORY_TREE = {
   "여비·출장비": ["교통비", "출장 유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
   "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
@@ -250,6 +252,7 @@ async function uploadCurrentReceipt() {
 
   try {
     await uploadReceipt(receipt);
+    rememberCategoryUse(receipt.category);
     await advanceAfterUpload();
     showFeedback({
       type: "success",
@@ -615,6 +618,7 @@ function populateSubcategoryOptions() {
 function handleCategoryChange() {
   const major = getUsageFromSubcategory(elements.categoryInput.value);
   elements.usageMajorText.textContent = major ? `대분류: ${major}` : "대분류 자동 계산";
+  renderCategoryShortcuts(elements.categoryInput.value);
   updateCategoryShortcutState();
   updateActions();
 }
@@ -634,9 +638,10 @@ function handleCardLast4Input() {
   elements.cardLast4Input.value = normalizeCardLast4(elements.cardLast4Input.value);
 }
 
-function renderCategoryShortcuts() {
+function renderCategoryShortcuts(preferredSubcategory = "") {
+  const shortcuts = getQuickSubcategories(preferredSubcategory);
   elements.categoryShortcuts.innerHTML = "";
-  for (const subcategory of QUICK_SUBCATEGORIES) {
+  for (const subcategory of shortcuts) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "category-chip";
@@ -649,6 +654,51 @@ function renderCategoryShortcuts() {
     elements.categoryShortcuts.appendChild(button);
   }
   updateCategoryShortcutState();
+}
+
+function getQuickSubcategories(preferredSubcategory = "") {
+  const allSubcategories = getAllSubcategories();
+  const stats = getCategoryStats();
+  const frequentlyUsed = Object.entries(stats)
+    .filter(([subcategory]) => allSubcategories.has(subcategory))
+    .sort((a, b) => {
+      const countGap = (b[1].count || 0) - (a[1].count || 0);
+      if (countGap !== 0) return countGap;
+      return String(b[1].lastUsedAt || "").localeCompare(String(a[1].lastUsedAt || ""));
+    })
+    .map(([subcategory]) => subcategory);
+
+  const preferred = allSubcategories.has(preferredSubcategory) ? [preferredSubcategory] : [];
+  const categories = [...preferred, ...frequentlyUsed, ...DEFAULT_QUICK_SUBCATEGORIES];
+  return Array.from(new Set(categories)).slice(0, MAX_QUICK_SUBCATEGORIES);
+}
+
+function rememberCategoryUse(subcategory) {
+  if (!getAllSubcategories().has(subcategory)) {
+    return;
+  }
+
+  const stats = getCategoryStats();
+  const current = stats[subcategory] || { count: 0, lastUsedAt: "" };
+  stats[subcategory] = {
+    count: current.count + 1,
+    lastUsedAt: new Date().toISOString()
+  };
+  localStorage.setItem(STORAGE_KEYS.categoryStats, JSON.stringify(stats));
+  renderCategoryShortcuts(subcategory);
+}
+
+function getCategoryStats() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.categoryStats) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getAllSubcategories() {
+  return new Set(Object.values(EXPENSE_SUBCATEGORY_TREE).flat());
 }
 
 function updateCategoryShortcutState() {

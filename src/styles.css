@@ -372,18 +372,28 @@ button:focus-visible {
 
 .category-shortcuts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.category-shortcuts::-webkit-scrollbar {
+  display: none;
 }
 
 .category-chip {
+  flex: 0 0 auto;
   min-height: 36px;
   border-radius: 999px;
   background: #eef2f7;
   color: var(--subtle);
   font-size: 13px;
   font-weight: 800;
-  padding: 0 12px;
+  line-height: 1;
+  padding: 0 11px;
+  white-space: nowrap;
 }
 
 .category-chip.active {
