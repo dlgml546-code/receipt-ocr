@@ -358,7 +358,7 @@ button:focus-visible {
 
 .action-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -368,6 +368,28 @@ button:focus-visible {
   gap: 12px;
   padding: 14px;
   margin-bottom: 14px;
+}
+
+.category-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-chip {
+  min-height: 36px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: var(--subtle);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.category-chip.active {
+  background: #e8f3ff;
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px rgba(49, 130, 246, 0.24);
 }
 
 .usage-major {
@@ -396,6 +418,15 @@ button:focus-visible {
   font-weight: 800;
   line-height: 1.45;
   padding: 12px;
+}
+
+.bottom-upload {
+  display: grid;
+  margin: 14px 0 0;
+}
+
+.upload-button {
+  width: 100%;
 }
 
 .result-panel {

@@ -6,13 +6,16 @@ const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
 const DEFAULT_SUBCATEGORY = "정기구독";
 const PAYMENT_METHOD_LABELS = {
-  corporate_card: "법인 카드",
-  personal_card: "개인 카드",
-  corporate_transfer: "법인 계좌이체",
-  transfer_request: "이체 요청"
+  card: "카드",
+  transfer: "계좌이체",
+  corporate_card: "카드",
+  personal_card: "카드",
+  corporate_transfer: "계좌이체",
+  transfer_request: "계좌이체"
 };
+const QUICK_SUBCATEGORIES = ["외부 미팅 식대", "직원 식대", "차량 유류비", "교통비", "주차비", "정기구독", "소모품", "사무용품"];
 const EXPENSE_SUBCATEGORY_TREE = {
-  "여비·출장비": ["교통비", "유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
+  "여비·출장비": ["교통비", "출장 유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
   "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
   "내부 사업비": ["교육 재료비", "행사 다과", "행사 식대", "인쇄·출력", "운반비", "촬영·편집", "작가·강사료", "기타 내부사업비"],
   "외부 사업비(외주용역)": ["외주 강사료", "외주 재료비", "외주 인쇄·출력", "외주 행사 다과", "외주 운반비", "외주 촬영·편집", "기타 외주용역비"],
@@ -52,6 +55,7 @@ const elements = {
   taxInput: document.querySelector("#taxInput"),
   currencyInput: document.querySelector("#currencyInput"),
   categoryInput: document.querySelector("#categoryInput"),
+  categoryShortcuts: document.querySelector("#categoryShortcuts"),
   usageMajorText: document.querySelector("#usageMajorText"),
   paymentMethodInput: document.querySelector("#paymentMethodInput"),
   cardLast4Input: document.querySelector("#cardLast4Input"),
@@ -71,6 +75,7 @@ function init() {
   ensureDeviceId();
   removeLegacyDeviceHistory();
   populateSubcategoryOptions();
+  renderCategoryShortcuts();
   elements.deviceIdText.textContent = shortDeviceId(getDeviceId());
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
@@ -462,7 +467,7 @@ function normalizeReceipt(payload) {
     taxAmount: numberOrEmpty(receipt.taxAmount || receipt.tax || ""),
     currency: receipt.currency || "KRW",
     category: normalizeSubcategory(receipt.category || DEFAULT_SUBCATEGORY),
-    paymentMethod: receipt.paymentMethod || receipt.payment_method || "corporate_card",
+    paymentMethod: normalizePaymentMethod(receipt.paymentMethod || receipt.payment_method || "card"),
     cardLast4: normalizeCardLast4(receipt.cardLast4 || receipt.card_last4 || ""),
     rawText: receipt.rawText || receipt.text || "",
     attachmentId: receipt.attachmentId || ""
@@ -476,7 +481,7 @@ function fillReceiptFields(receipt) {
   elements.taxInput.value = receipt.taxAmount;
   elements.currencyInput.value = receipt.currency;
   setSelectValue(elements.categoryInput, receipt.category || DEFAULT_SUBCATEGORY);
-  setSelectValue(elements.paymentMethodInput, receipt.paymentMethod || "corporate_card");
+  setSelectValue(elements.paymentMethodInput, normalizePaymentMethod(receipt.paymentMethod || "card"));
   elements.cardLast4Input.value = receipt.cardLast4;
   elements.rawTextInput.value = receipt.rawText;
   handleCategoryChange();
@@ -512,7 +517,7 @@ function clearReceiptFields() {
   elements.form.reset();
   elements.currencyInput.value = "KRW";
   elements.categoryInput.value = DEFAULT_SUBCATEGORY;
-  elements.paymentMethodInput.value = "corporate_card";
+  elements.paymentMethodInput.value = "card";
   elements.cardLast4Input.value = "";
   handleCategoryChange();
   handlePaymentMethodChange();
@@ -610,16 +615,14 @@ function populateSubcategoryOptions() {
 function handleCategoryChange() {
   const major = getUsageFromSubcategory(elements.categoryInput.value);
   elements.usageMajorText.textContent = major ? `대분류: ${major}` : "대분류 자동 계산";
+  updateCategoryShortcutState();
   updateActions();
 }
 
 function handlePaymentMethodChange() {
-  if (elements.paymentMethodInput.value === "personal_card") {
+  if (elements.paymentMethodInput.value === "transfer") {
     elements.paymentNotice.hidden = false;
-    elements.paymentNotice.textContent = "개인 카드 사용분은 월 말 일괄 정산됩니다. 지출결의에는 이체 요청으로 올라갑니다.";
-  } else if (elements.paymentMethodInput.value === "transfer_request") {
-    elements.paymentNotice.hidden = false;
-    elements.paymentNotice.textContent = "아직 결제가 필요한 항목으로 등록되어 지출결의에서 이체 요청으로 검토됩니다.";
+    elements.paymentNotice.textContent = "계좌이체 항목은 지출결의에서 이체 필요 여부를 확인합니다.";
   } else {
     elements.paymentNotice.hidden = true;
     elements.paymentNotice.textContent = "";
@@ -629,6 +632,29 @@ function handlePaymentMethodChange() {
 
 function handleCardLast4Input() {
   elements.cardLast4Input.value = normalizeCardLast4(elements.cardLast4Input.value);
+}
+
+function renderCategoryShortcuts() {
+  elements.categoryShortcuts.innerHTML = "";
+  for (const subcategory of QUICK_SUBCATEGORIES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "category-chip";
+    button.textContent = subcategory;
+    button.dataset.category = subcategory;
+    button.addEventListener("click", () => {
+      setSelectValue(elements.categoryInput, subcategory);
+      handleCategoryChange();
+    });
+    elements.categoryShortcuts.appendChild(button);
+  }
+  updateCategoryShortcutState();
+}
+
+function updateCategoryShortcutState() {
+  Array.from(elements.categoryShortcuts.querySelectorAll("button")).forEach((button) => {
+    button.classList.toggle("active", button.dataset.category === elements.categoryInput.value);
+  });
 }
 
 function getUsageFromSubcategory(subcategory) {
@@ -646,9 +672,15 @@ function normalizeSubcategory(value) {
     transport: "교통비",
     supplies: "소모품",
     lodging: "숙박비",
-    general: DEFAULT_SUBCATEGORY
+    general: DEFAULT_SUBCATEGORY,
+    "유류비": "차량 유류비"
   };
   return legacyMap[value] || value || DEFAULT_SUBCATEGORY;
+}
+
+function normalizePaymentMethod(value) {
+  if (value === "transfer" || value === "corporate_transfer" || value === "transfer_request") return "transfer";
+  return "card";
 }
 
 function setSelectValue(select, value) {

@@ -46,10 +46,10 @@
 
       <section class="action-row" aria-label="처리">
         <button id="ocrButton" class="primary-button" type="button" disabled>내용 분석</button>
-        <button id="uploadButton" class="primary-button" type="button" disabled>업로드</button>
       </section>
 
       <section class="usage-panel" aria-label="지출 분류와 결제 방식">
+        <div class="category-shortcuts" id="categoryShortcuts" aria-label="자주 쓰는 지출 소분류"></div>
         <label class="field">
           <span>지출 소분류 <strong>필수</strong></span>
           <select id="categoryInput" name="category" required></select>
@@ -59,10 +59,8 @@
           <label class="field">
             <span>결제 방식</span>
             <select id="paymentMethodInput" name="paymentMethod">
-              <option value="corporate_card">법인 카드</option>
-              <option value="personal_card">개인 카드</option>
-              <option value="corporate_transfer">법인 계좌이체</option>
-              <option value="transfer_request">이체 요청</option>
+              <option value="card">카드</option>
+              <option value="transfer">계좌이체</option>
             </select>
           </label>
           <label class="field">
@@ -120,6 +118,9 @@
       </form>
 
       <p class="confirmation-text">위 내용이 맞다면 업로드 버튼을 눌러주세요.</p>
+      <section class="bottom-upload" aria-label="업로드">
+        <button id="uploadButton" class="primary-button upload-button" type="button" disabled>업로드</button>
+      </section>
       <p id="statusText" class="status-text" role="status" aria-live="polite"></p>
 
       <div id="feedbackDialog" class="feedback-dialog" role="alertdialog" aria-live="assertive" aria-modal="true" hidden>

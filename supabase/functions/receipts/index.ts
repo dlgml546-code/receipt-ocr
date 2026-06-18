@@ -65,7 +65,8 @@ async function handleOcr(req: Request, supabase: ReturnType<typeof createClient>
   const { data: signed } = await supabase.storage.from("receipts").createSignedUrl(storagePath, 60 * 60 * 24 * 7);
   const ocr = await runOcr(storagePath, supabase);
   const cardLast4 = cleanString(ocr.card_last4);
-  const paymentMethod = isCorporateCardLast4(cardLast4) ? "corporate_card" : null;
+  const paymentMethod = isCorporateCardLast4(cardLast4) ? "card" : null;
+  const historicalSubcategory = await findHistoricalSubcategory(supabase, ocr);
 
   return json({
     receipt: {
@@ -74,7 +75,7 @@ async function handleOcr(req: Request, supabase: ReturnType<typeof createClient>
       totalAmount: ocr.total_amount,
       taxAmount: ocr.vat_amount,
       currency: "KRW",
-      category: guessSubcategory(ocr.purpose, ocr.raw_text),
+      category: historicalSubcategory || guessSubcategory(ocr.vendor_name, ocr.purpose, ocr.raw_text),
       paymentMethod,
       cardLast4,
       rawText: ocr.raw_text
@@ -131,7 +132,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     ocr_total_amount: amount || null,
     ocr_transaction_date: usedAt,
     is_recurring: false,
-    memo: buildMemo(body, usage, subcategory, payment)
+    memo: buildMemo({ ...body, deviceOwner, deviceId }, usage, subcategory, payment)
   };
 
   const { data: expense, error: expenseError } = await insertWithColumnHealing(
@@ -258,6 +259,10 @@ function buildMemo(
   if (payment.cardLast4) {
     lines.push(`카드 뒷자리: ${payment.cardLast4}`);
   }
+  const deviceOwner = cleanString(body.deviceOwner) || cleanString(body.submittedBy);
+  const deviceId = cleanString(body.deviceId);
+  if (deviceOwner) lines.push(`업로드 기기 소유자: ${deviceOwner}`);
+  if (deviceId) lines.push(`기기 ID: ${deviceId}`);
   if (payment.kind === "personal_card") {
     lines.push("개인 카드 월말 일괄 정산 대상");
   }
@@ -275,7 +280,8 @@ function normalizeSubcategory(category: unknown) {
     transport: "교통비",
     supplies: "소모품",
     lodging: "숙박비",
-    general: "정기구독"
+    general: "정기구독",
+    "유류비": "차량 유류비"
   };
   const allSubcategories = new Set(Object.values(EXPENSE_SUBCATEGORY_MAP).flat());
   if (!value) return "정기구독";
@@ -294,6 +300,7 @@ function mapUsage(category: unknown) {
 
 function guessSubcategory(...values: Array<string | null>) {
   const text = values.filter(Boolean).join(" ");
+  if (/주유|주유소|fuel|gas station|oil/i.test(text)) return "차량 유류비";
   if (/식대|식사|음식|카페|커피|다과|베이커리|도시락/.test(text)) return "외부 미팅 식대";
   if (/택시|버스|지하철|KTX|SRT|교통|주차|통행/.test(text)) return "교통비";
   if (/호텔|숙박|모텔/.test(text)) return "숙박비";
@@ -303,11 +310,21 @@ function guessSubcategory(...values: Array<string | null>) {
 }
 
 function normalizePayment(method: unknown, rawCardLast4: unknown) {
-  const value = cleanString(method) || "corporate_card";
+  const value = cleanString(method) || "card";
   const cardLast4 = normalizeCardLast4(rawCardLast4);
   const isCorporate = isCorporateCardLast4(cardLast4);
-  const kind = isCorporate ? "corporate_card" : value;
+  const kind = isCorporate ? "card" : normalizePaymentKind(value);
   const map: Record<string, { label: string; expensePaymentMethod: string; reviewReason: string }> = {
+    card: {
+      label: "카드",
+      expensePaymentMethod: "카드",
+      reviewReason: "모바일 영수증 OCR 등록 확인"
+    },
+    transfer: {
+      label: "계좌이체",
+      expensePaymentMethod: "계좌이체",
+      reviewReason: "모바일 영수증 OCR 계좌이체 등록 확인"
+    },
     corporate_card: {
       label: "법인 카드",
       expensePaymentMethod: "카드",
@@ -332,11 +349,24 @@ function normalizePayment(method: unknown, rawCardLast4: unknown) {
   return {
     kind,
     cardLast4,
-    ...(map[kind] || map.corporate_card)
+    ...(map[kind] || map.card)
   };
 }
 
+function normalizePaymentKind(value: string | null) {
+  if (value === "transfer" || value === "corporate_transfer" || value === "transfer_request") return "transfer";
+  if (value === "personal_card") return "personal_card";
+  if (value === "corporate_card") return "card";
+  return "card";
+}
+
 function getTransferState(payment: ReturnType<typeof normalizePayment>) {
+  if (payment.kind === "transfer") {
+    return {
+      status: "결제 필요",
+      summary: "계좌이체 확인 필요"
+    };
+  }
   if (payment.kind === "personal_card") {
     return {
       status: "결제 필요",
@@ -362,7 +392,7 @@ function getTransferState(payment: ReturnType<typeof normalizePayment>) {
 }
 
 const EXPENSE_SUBCATEGORY_MAP: Record<string, string[]> = {
-  "여비·출장비": ["교통비", "유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
+  "여비·출장비": ["교통비", "출장 유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
   "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
   "내부 사업비": ["교육 재료비", "행사 다과", "행사 식대", "인쇄·출력", "운반비", "촬영·편집", "작가·강사료", "기타 내부사업비"],
   "외부 사업비(외주용역)": ["외주 강사료", "외주 재료비", "외주 인쇄·출력", "외주 행사 다과", "외주 운반비", "외주 촬영·편집", "기타 외주용역비"],
@@ -408,6 +438,60 @@ function isCorporateCardLast4(cardLast4: string | null) {
   const configured = Deno.env.get("CORPORATE_CARD_LAST4S") || Deno.env.get("CORPORATE_CARD_LAST4") || "";
   const cards = configured.split(",").map((value) => normalizeCardLast4(value)).filter(Boolean);
   return cards.includes(cardLast4);
+}
+
+async function findHistoricalSubcategory(
+  supabase: ReturnType<typeof createClient>,
+  ocr: ReturnType<typeof normalizeReceiptResult>
+) {
+  const vendor = normalizeSearchText(ocr.vendor_name);
+  if (!vendor || vendor.length < 2) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from("expense_requests")
+      .select("purpose,memo,usage,ocr_vendor_name")
+      .order("used_at", { ascending: false })
+      .limit(120);
+
+    if (error || !data) return null;
+
+    for (const row of data as Array<Record<string, unknown>>) {
+      const candidate = normalizeSearchText(cleanString(row.ocr_vendor_name) || cleanString(row.purpose));
+      if (!candidate) continue;
+      if (!isSimilarText(vendor, candidate)) continue;
+      const memoSubcategory = readMemoField(cleanString(row.memo), "지출 소분류");
+      if (memoSubcategory) return normalizeSubcategory(memoSubcategory);
+      const usage = cleanString(row.usage);
+      const fallback = usage ? EXPENSE_SUBCATEGORY_MAP[usage]?.[0] : null;
+      if (fallback) return fallback;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function isSimilarText(left: string, right: string) {
+  if (left.includes(right) || right.includes(left)) return true;
+  const leftTokens = new Set(left.split(/\s+/).filter((token) => token.length >= 2));
+  const rightTokens = right.split(/\s+/).filter((token) => token.length >= 2);
+  return rightTokens.some((token) => leftTokens.has(token));
+}
+
+function normalizeSearchText(value: string | null) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[\s\-_.,()]/g, " ")
+    .replace(/\b(주식회사|유한회사|주|co|ltd|inc)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readMemoField(memo: string | null, label: string) {
+  const line = String(memo || "").split("\n").find((item) => item.trim().startsWith(`${label}:`));
+  return line ? line.slice(label.length + 1).trim() : "";
 }
 
 async function findDeviceOwner(supabase: ReturnType<typeof createClient>, deviceId: string | null) {
