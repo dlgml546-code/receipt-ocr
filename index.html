@@ -59,13 +59,10 @@
           <label class="field">
             <span>결제 방식</span>
             <select id="paymentMethodInput" name="paymentMethod">
-              <option value="card">카드</option>
+              <option value="card">법인카드</option>
+              <option value="personal_card">개인카드</option>
               <option value="transfer">계좌이체</option>
             </select>
-          </label>
-          <label class="field">
-            <span>카드 뒷자리</span>
-            <input id="cardLast4Input" name="cardLast4" inputmode="numeric" maxlength="4" placeholder="자동 인식" />
           </label>
         </div>
         <p id="paymentNotice" class="payment-notice" hidden></p>

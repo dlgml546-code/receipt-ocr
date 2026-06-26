@@ -6,16 +6,16 @@ const STORAGE_KEYS = {
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
 const DEFAULT_SUBCATEGORY = "정기구독";
-const MAX_QUICK_SUBCATEGORIES = 5;
+const MAX_QUICK_SUBCATEGORIES = 6;
 const PAYMENT_METHOD_LABELS = {
-  card: "카드",
+  card: "법인카드",
   transfer: "계좌이체",
-  corporate_card: "카드",
-  personal_card: "카드",
+  corporate_card: "법인카드",
+  personal_card: "개인카드",
   corporate_transfer: "계좌이체",
   transfer_request: "계좌이체"
 };
-const DEFAULT_QUICK_SUBCATEGORIES = ["외부 미팅 식대", "차량 유류비", "교통비", "정기구독", "사무용품"];
+const DEFAULT_QUICK_SUBCATEGORIES = ["외부 미팅 식대", "차량 유류비", "교통비", "정기구독", "사무용품", "주차비"];
 const EXPENSE_SUBCATEGORY_TREE = {
   "여비·출장비": ["교통비", "출장 유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
   "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
@@ -60,7 +60,6 @@ const elements = {
   categoryShortcuts: document.querySelector("#categoryShortcuts"),
   usageMajorText: document.querySelector("#usageMajorText"),
   paymentMethodInput: document.querySelector("#paymentMethodInput"),
-  cardLast4Input: document.querySelector("#cardLast4Input"),
   paymentNotice: document.querySelector("#paymentNotice"),
   usageInput: document.querySelector("#usageInput"),
   rawTextInput: document.querySelector("#rawTextInput"),
@@ -89,7 +88,6 @@ function init() {
   elements.usageInput.addEventListener("input", updateActions);
   elements.categoryInput.addEventListener("change", handleCategoryChange);
   elements.paymentMethodInput.addEventListener("change", handlePaymentMethodChange);
-  elements.cardLast4Input.addEventListener("input", handleCardLast4Input);
   elements.feedbackCloseButton.addEventListener("click", hideFeedback);
 
   registerServiceWorker();
@@ -471,7 +469,6 @@ function normalizeReceipt(payload) {
     currency: receipt.currency || "KRW",
     category: normalizeSubcategory(receipt.category || DEFAULT_SUBCATEGORY),
     paymentMethod: normalizePaymentMethod(receipt.paymentMethod || receipt.payment_method || "card"),
-    cardLast4: normalizeCardLast4(receipt.cardLast4 || receipt.card_last4 || ""),
     rawText: receipt.rawText || receipt.text || "",
     attachmentId: receipt.attachmentId || ""
   };
@@ -485,7 +482,6 @@ function fillReceiptFields(receipt) {
   elements.currencyInput.value = receipt.currency;
   setSelectValue(elements.categoryInput, receipt.category || DEFAULT_SUBCATEGORY);
   setSelectValue(elements.paymentMethodInput, normalizePaymentMethod(receipt.paymentMethod || "card"));
-  elements.cardLast4Input.value = receipt.cardLast4;
   elements.rawTextInput.value = receipt.rawText;
   handleCategoryChange();
   handlePaymentMethodChange();
@@ -502,7 +498,6 @@ function buildReceiptPayload() {
     usageCategory: getUsageFromSubcategory(elements.categoryInput.value),
     paymentMethod: elements.paymentMethodInput.value,
     paymentMethodLabel: PAYMENT_METHOD_LABELS[elements.paymentMethodInput.value] || elements.paymentMethodInput.value,
-    cardLast4: normalizeCardLast4(elements.cardLast4Input.value),
     usageContent: elements.usageInput.value.trim(),
     rawText: elements.rawTextInput.value.trim(),
     attachmentId: state.attachmentId,
@@ -521,7 +516,6 @@ function clearReceiptFields() {
   elements.currencyInput.value = "KRW";
   elements.categoryInput.value = DEFAULT_SUBCATEGORY;
   elements.paymentMethodInput.value = "card";
-  elements.cardLast4Input.value = "";
   handleCategoryChange();
   handlePaymentMethodChange();
 }
@@ -627,15 +621,14 @@ function handlePaymentMethodChange() {
   if (elements.paymentMethodInput.value === "transfer") {
     elements.paymentNotice.hidden = false;
     elements.paymentNotice.textContent = "계좌이체 항목은 지출결의에서 이체 필요 여부를 확인합니다.";
+  } else if (elements.paymentMethodInput.value === "personal_card") {
+    elements.paymentNotice.hidden = false;
+    elements.paymentNotice.textContent = "개인카드 사용분은 월말 일괄 정산 항목으로 올라갑니다.";
   } else {
     elements.paymentNotice.hidden = true;
     elements.paymentNotice.textContent = "";
   }
   updateActions();
-}
-
-function handleCardLast4Input() {
-  elements.cardLast4Input.value = normalizeCardLast4(elements.cardLast4Input.value);
 }
 
 function renderCategoryShortcuts(preferredSubcategory = "") {
@@ -730,16 +723,13 @@ function normalizeSubcategory(value) {
 
 function normalizePaymentMethod(value) {
   if (value === "transfer" || value === "corporate_transfer" || value === "transfer_request") return "transfer";
+  if (value === "personal_card") return "personal_card";
   return "card";
 }
 
 function setSelectValue(select, value) {
   const hasOption = Array.from(select.options).some((option) => option.value === value);
   select.value = hasOption ? value : select.options[0]?.value || "";
-}
-
-function normalizeCardLast4(value) {
-  return String(value || "").replace(/\D/g, "").slice(-4);
 }
 
 function setStatus(message) {
