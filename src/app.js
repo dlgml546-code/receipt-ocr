@@ -5,7 +5,7 @@ const STORAGE_KEYS = {
 };
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
-const DEFAULT_SUBCATEGORY = "정기구독";
+const DEFAULT_SUBCATEGORY = "외부 미팅 식대";
 const MAX_QUICK_SUBCATEGORIES = 6;
 const PAYMENT_METHOD_LABELS = {
   card: "법인카드",
@@ -15,7 +15,8 @@ const PAYMENT_METHOD_LABELS = {
   corporate_transfer: "계좌이체",
   transfer_request: "계좌이체"
 };
-const DEFAULT_QUICK_SUBCATEGORIES = ["외부 미팅 식대", "차량 유류비", "교통비", "정기구독", "사무용품", "주차비"];
+const EXCLUDED_QUICK_SUBCATEGORIES = new Set(["정기구독", "사무용품"]);
+const DEFAULT_QUICK_SUBCATEGORIES = ["외부 미팅 식대", "외부 미팅 다과", "직원 식대", "차량 유류비", "교통비", "주차비"];
 const EXPENSE_SUBCATEGORY_TREE = {
   "여비·출장비": ["교통비", "출장 유류비", "주차비", "택시비", "숙박비", "출장 식대", "출장 다과", "통행료", "기타 출장비"],
   "업무 추진비": ["외부 미팅 식대", "외부 미팅 다과", "거래처 선물", "회의비", "접대비", "기타 업무추진비"],
@@ -653,7 +654,7 @@ function getQuickSubcategories(preferredSubcategory = "") {
   const allSubcategories = getAllSubcategories();
   const stats = getCategoryStats();
   const frequentlyUsed = Object.entries(stats)
-    .filter(([subcategory]) => allSubcategories.has(subcategory))
+    .filter(([subcategory]) => allSubcategories.has(subcategory) && !EXCLUDED_QUICK_SUBCATEGORIES.has(subcategory))
     .sort((a, b) => {
       const countGap = (b[1].count || 0) - (a[1].count || 0);
       if (countGap !== 0) return countGap;
@@ -661,7 +662,7 @@ function getQuickSubcategories(preferredSubcategory = "") {
     })
     .map(([subcategory]) => subcategory);
 
-  const preferred = allSubcategories.has(preferredSubcategory) ? [preferredSubcategory] : [];
+  const preferred = allSubcategories.has(preferredSubcategory) && !EXCLUDED_QUICK_SUBCATEGORIES.has(preferredSubcategory) ? [preferredSubcategory] : [];
   const categories = [...preferred, ...frequentlyUsed, ...DEFAULT_QUICK_SUBCATEGORIES];
   return Array.from(new Set(categories)).slice(0, MAX_QUICK_SUBCATEGORIES);
 }

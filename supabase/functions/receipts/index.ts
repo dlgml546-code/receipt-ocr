@@ -280,12 +280,12 @@ function normalizeSubcategory(category: unknown) {
     transport: "교통비",
     supplies: "소모품",
     lodging: "숙박비",
-    general: "정기구독",
+    general: "외부 미팅 식대",
     "유류비": "차량 유류비"
   };
   const allSubcategories = new Set(Object.values(EXPENSE_SUBCATEGORY_MAP).flat());
-  if (!value) return "정기구독";
-  return allSubcategories.has(value) ? value : legacyMap[value] || "정기구독";
+  if (!value) return "외부 미팅 식대";
+  return allSubcategories.has(value) ? value : legacyMap[value] || "외부 미팅 식대";
 }
 
 function mapUsage(category: unknown) {
@@ -301,12 +301,13 @@ function mapUsage(category: unknown) {
 function guessSubcategory(...values: Array<string | null>) {
   const text = values.filter(Boolean).join(" ");
   if (/주유|주유소|fuel|gas station|oil/i.test(text)) return "차량 유류비";
-  if (/식대|식사|음식|카페|커피|다과|베이커리|도시락/.test(text)) return "외부 미팅 식대";
+  if (/카페|커피|다과|베이커리|디저트|음료/.test(text)) return "외부 미팅 다과";
+  if (/식대|식사|음식|도시락|점심|저녁/.test(text)) return "외부 미팅 식대";
   if (/택시|버스|지하철|KTX|SRT|교통|주차|통행/.test(text)) return "교통비";
   if (/호텔|숙박|모텔/.test(text)) return "숙박비";
   if (/문구|소모품|사무용품/.test(text)) return "사무용품";
   if (/구독|소프트웨어|서버|도메인|cloud|software/i.test(text)) return "정기구독";
-  return "정기구독";
+  return "외부 미팅 식대";
 }
 
 function normalizePayment(method: unknown, rawCardLast4: unknown) {
