@@ -649,6 +649,117 @@ button:focus-visible {
   font-size: 14px;
 }
 
+.improvement-fab {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 18;
+  min-width: 72px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow: 0 12px 28px rgba(25, 31, 40, 0.24);
+}
+
+.improvement-backdrop[hidden] {
+  display: none;
+}
+
+.improvement-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: end center;
+  padding: 18px;
+  background: rgba(25, 31, 40, 0.45);
+}
+
+.improvement-modal {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 520px);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 18px;
+  box-shadow: 0 22px 56px rgba(25, 31, 40, 0.28);
+}
+
+.improvement-head,
+.improvement-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.improvement-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.improvement-guide,
+.improvement-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.improvement-form {
+  display: grid;
+  gap: 12px;
+}
+
+.improvement-list {
+  display: grid;
+  gap: 8px;
+}
+
+.improvement-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px;
+}
+
+.improvement-item div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.improvement-item strong {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.improvement-item span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 @media (max-width: 520px) {
   .app-shell {
     padding-left: 16px;
@@ -685,5 +796,18 @@ button:focus-visible {
 
   h1 {
     font-size: 27px;
+  }
+
+  .improvement-backdrop {
+    padding: 10px;
+  }
+
+  .improvement-modal {
+    width: 100%;
+  }
+
+  .improvement-fab {
+    right: 14px;
+    bottom: calc(14px + env(safe-area-inset-bottom));
   }
 }

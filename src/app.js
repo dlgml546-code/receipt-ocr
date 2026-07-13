@@ -1,7 +1,8 @@
 const STORAGE_KEYS = {
   deviceId: "receiptOcr.deviceId",
   queue: "receiptOcr.pendingUploads",
-  categoryStats: "receiptOcr.categoryStats"
+  categoryStats: "receiptOcr.categoryStats",
+  improvements: "receiptOcr.improvementRequests"
 };
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
@@ -96,6 +97,7 @@ function init() {
   handlePaymentMethodChange();
   updateQueueCount();
   updateActions();
+  initImprovementCapture();
 }
 
 function ensureDeviceId() {
@@ -797,4 +799,205 @@ function registerServiceWorker() {
       console.warn("Service worker registration failed", error);
     });
   });
+}
+
+function initImprovementCapture() {
+  const root = document.createElement("div");
+  root.className = "improvement-root";
+  root.innerHTML = `
+    <button class="improvement-fab" type="button" title="개선 메모 열기 (Ctrl+Shift+M)" aria-label="개선 메모 열기">개선</button>
+    <div class="improvement-backdrop" hidden>
+      <section class="improvement-modal" role="dialog" aria-modal="true" aria-label="개선 메모">
+        <div class="improvement-head">
+          <div>
+            <p class="eyebrow">영수증 OCR 개선함</p>
+            <h2>개선 메모</h2>
+          </div>
+          <button class="improvement-close" type="button" aria-label="닫기">×</button>
+        </div>
+        <p class="improvement-guide">현재 화면과 입력값이 함께 저장됩니다. Ctrl+Shift+M으로 바로 열 수 있습니다.</p>
+        <div class="improvement-form">
+          <label class="field">
+            <span>유형</span>
+            <select data-improvement-type>
+              <option value="bug">오류</option>
+              <option value="ux">불편</option>
+              <option value="design">디자인</option>
+              <option value="feature">기능요청</option>
+              <option value="data">데이터</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>메모</span>
+            <textarea data-improvement-note rows="4" placeholder="어떤 점을 고치면 좋을까요?"></textarea>
+          </label>
+          <button class="primary-button" type="button" data-improvement-save>개선함에 저장</button>
+          <p class="improvement-message" data-improvement-message></p>
+        </div>
+        <div class="improvement-list-head">
+          <strong>최근 개선 요청</strong>
+          <button class="text-button" type="button" data-improvement-clear>완료 항목 비우기</button>
+        </div>
+        <div class="improvement-list" data-improvement-list></div>
+      </section>
+    </div>
+  `;
+
+  document.body.appendChild(root);
+
+  const fab = root.querySelector(".improvement-fab");
+  const backdrop = root.querySelector(".improvement-backdrop");
+  const modal = root.querySelector(".improvement-modal");
+  const closeButton = root.querySelector(".improvement-close");
+  const saveButton = root.querySelector("[data-improvement-save]");
+  const clearButton = root.querySelector("[data-improvement-clear]");
+  const noteInput = root.querySelector("[data-improvement-note]");
+  const typeInput = root.querySelector("[data-improvement-type]");
+  const message = root.querySelector("[data-improvement-message]");
+  const list = root.querySelector("[data-improvement-list]");
+
+  function open() {
+    backdrop.hidden = false;
+    renderImprovementList(list);
+    noteInput.focus();
+  }
+
+  function close() {
+    backdrop.hidden = true;
+    message.textContent = "";
+  }
+
+  fab.addEventListener("click", open);
+  closeButton.addEventListener("click", close);
+  backdrop.addEventListener("click", close);
+  modal.addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !backdrop.hidden) {
+      close();
+    }
+    if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "m") {
+      event.preventDefault();
+      if (backdrop.hidden) open();
+      else close();
+    }
+  });
+
+  saveButton.addEventListener("click", () => {
+    const note = noteInput.value.trim();
+    if (!note) {
+      message.textContent = "개선 메모를 입력해 주세요.";
+      return;
+    }
+
+    saveImprovementRequest({
+      type: typeInput.value,
+      note
+    });
+    noteInput.value = "";
+    message.textContent = "개선함에 저장했습니다.";
+    renderImprovementList(list);
+  });
+
+  clearButton.addEventListener("click", () => {
+    const rows = getImprovementRequests().filter((row) => row.status !== "done");
+    setImprovementRequests(rows);
+    renderImprovementList(list);
+  });
+}
+
+function saveImprovementRequest({ type, note }) {
+  const rows = getImprovementRequests();
+  const currentReceipt = buildReceiptPayload();
+  const request = {
+    id: crypto.randomUUID ? crypto.randomUUID() : `improvement-${Date.now()}`,
+    app: "receipt-ocr",
+    menu_id: "receipt_ocr",
+    menu_label: "영수증 OCR",
+    page_title: document.title,
+    page_path: `${location.pathname}${location.search}`,
+    request_type: type,
+    note,
+    status: "open",
+    context: {
+      deviceId: getDeviceId(),
+      merchant: currentReceipt.merchant,
+      amount: currentReceipt.totalAmount,
+      category: currentReceipt.category,
+      usageCategory: currentReceipt.usageCategory,
+      paymentMethod: currentReceipt.paymentMethod,
+      capturedAt: currentReceipt.capturedAt
+    },
+    user_agent: navigator.userAgent,
+    viewport_width: window.innerWidth,
+    viewport_height: window.innerHeight,
+    created_at: new Date().toISOString()
+  };
+
+  setImprovementRequests([request, ...rows].slice(0, 100));
+}
+
+function getImprovementRequests() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(STORAGE_KEYS.improvements) || "[]");
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
+}
+
+function setImprovementRequests(rows) {
+  localStorage.setItem(STORAGE_KEYS.improvements, JSON.stringify(rows));
+}
+
+function renderImprovementList(list) {
+  const rows = getImprovementRequests();
+  list.innerHTML = "";
+  if (rows.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-text";
+    empty.textContent = "아직 저장된 개선 요청이 없습니다.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const row of rows.slice(0, 8)) {
+    const item = document.createElement("article");
+    item.className = "improvement-item";
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(row.note)}</strong>
+        <span>${formatImprovementMeta(row)}</span>
+      </div>
+      <button class="text-button" type="button">${row.status === "done" ? "완료됨" : "완료"}</button>
+    `;
+    item.querySelector("button").addEventListener("click", () => {
+      const next = getImprovementRequests().map((saved) => (
+        saved.id === row.id ? { ...saved, status: "done", updated_at: new Date().toISOString() } : saved
+      ));
+      setImprovementRequests(next);
+      renderImprovementList(list);
+    });
+    list.appendChild(item);
+  }
+}
+
+function formatImprovementMeta(row) {
+  const date = row.created_at ? new Date(row.created_at) : null;
+  const dateText = date && !Number.isNaN(date.getTime()) ? date.toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const typeMap = {
+    bug: "오류",
+    ux: "불편",
+    design: "디자인",
+    feature: "기능요청",
+    data: "데이터"
+  };
+  return [typeMap[row.request_type] || row.request_type, row.context?.category, row.context?.paymentMethod, dateText].filter(Boolean).join(" · ");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
