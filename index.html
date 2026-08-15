@@ -16,17 +16,17 @@
           <p class="eyebrow">지출 결의 영수증</p>
           <h1>영수증을 촬영해 주세요</h1>
         </div>
-        <button class="queue-button" id="retryButton" type="button" aria-label="대기 항목 재시도">
+        <button class="queue-button" id="retryButton" type="button" aria-label="대기 목록 다시 업로드">
           <span id="queueCount">0</span>
         </button>
       </header>
 
       <section class="device-card" aria-label="기기 등록 상태">
         <div>
-          <span>이 기기 ID</span>
+          <span>내 기기 ID</span>
           <strong id="deviceIdText">확인 중</strong>
         </div>
-        <p>관리자가 이 ID를 직원에게 연결하면 누가 올렸는지 대시보드에서 확인할 수 있습니다.</p>
+        <p>관리자가 이 ID를 직원에게 연결하면 지출 결의 대시보드에서 업로드 담당자를 확인할 수 있습니다.</p>
       </section>
 
       <section class="capture-zone" aria-label="영수증 이미지">
@@ -38,14 +38,28 @@
             <span class="capture-plus" aria-hidden="true">+</span>
             <span>촬영</span>
           </label>
-          <label class="secondary-capture-button" for="albumInput">앨범 선택</label>
+          <label class="secondary-capture-button" for="albumInput">여러 장 선택</label>
           <button id="rotateButton" class="secondary-capture-button" type="button" disabled>회전</button>
         </div>
         <p id="batchText" class="batch-text"></p>
       </section>
 
+      <section class="batch-panel" aria-label="선택한 영수증 목록">
+        <div class="batch-toolbar">
+          <button id="prevButton" class="icon-text-button" type="button" disabled>이전</button>
+          <strong id="batchSummary">0장 선택</strong>
+          <button id="nextButton" class="icon-text-button" type="button" disabled>다음</button>
+        </div>
+        <div id="batchList" class="batch-list" aria-label="영수증별 상태"></div>
+        <label class="upload-check">
+          <input id="includeUploadInput" type="checkbox" checked disabled />
+          <span>이 영수증 업로드</span>
+        </label>
+      </section>
+
       <section class="action-row" aria-label="처리">
-        <button id="ocrButton" class="primary-button" type="button" disabled>내용 분석</button>
+        <button id="ocrButton" class="primary-button" type="button" disabled>전체 분석</button>
+        <button id="uploadButton" class="primary-button" type="button" disabled>선택 업로드</button>
       </section>
 
       <section class="usage-panel" aria-label="지출 분류와 결제 방식">
@@ -64,11 +78,15 @@
               <option value="transfer">계좌이체</option>
             </select>
           </label>
+          <label id="cardOwnerField" class="field is-hidden">
+            <span>사용 직원 이름 <strong>개인카드 필수</strong></span>
+            <input id="cardOwnerInput" name="cardOwnerName" autocomplete="name" placeholder="예: 김루플" />
+          </label>
         </div>
         <p id="paymentNotice" class="payment-notice" hidden></p>
         <label class="field">
-          <span>메모</span>
-          <textarea id="usageInput" name="usageContent" rows="3" placeholder="예: 거래처 미팅 다과 구입"></textarea>
+          <span>사용 내용 <strong>필수</strong></span>
+          <textarea id="usageInput" name="usageContent" rows="3" required placeholder="예: 거래처 미팅 다과 구입"></textarea>
         </label>
       </section>
 
@@ -78,7 +96,7 @@
             <p class="eyebrow">자동 인식 결과</p>
             <h2>영수증 내용</h2>
           </div>
-          <p>분석 후 자동으로 채워지며, 틀린 값만 수정하시면 됩니다.</p>
+          <p>분석 후 자동으로 채워지면, 틀린 값만 수정해 주세요.</p>
         </div>
 
         <div class="form-grid">
@@ -114,10 +132,7 @@
         </div>
       </form>
 
-      <p class="confirmation-text">위 내용이 맞다면 업로드 버튼을 눌러주세요.</p>
-      <section class="bottom-upload" aria-label="업로드">
-        <button id="uploadButton" class="primary-button upload-button" type="button" disabled>업로드</button>
-      </section>
+      <p class="confirmation-text">위 내용이 맞다면 업로드할 영수증을 체크한 뒤 선택 업로드 버튼을 눌러주세요.</p>
       <p id="statusText" class="status-text" role="status" aria-live="polite"></p>
 
       <div id="feedbackDialog" class="feedback-dialog" role="alertdialog" aria-live="assertive" aria-modal="true" hidden>
@@ -128,7 +143,6 @@
           <button id="feedbackCloseButton" class="primary-button" type="button">확인</button>
         </div>
       </div>
-
     </main>
 
     <script type="module" src="./src/app.js"></script>

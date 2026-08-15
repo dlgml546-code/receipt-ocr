@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   categoryStats: "receiptOcr.categoryStats",
   improvements: "receiptOcr.improvementRequests"
 };
+
 const MAX_RECEIPT_IMAGE_SIDE = 1800;
 const RECEIPT_IMAGE_QUALITY = 0.82;
 const DEFAULT_SUBCATEGORY = "외부 미팅 식대";
@@ -33,11 +34,9 @@ const EXPENSE_SUBCATEGORY_TREE = {
 const state = {
   items: [],
   currentIndex: -1,
-  selectedFile: null,
   previewUrl: "",
-  attachmentId: "",
-  capturedAt: "",
-  feedbackTimer: 0
+  feedbackTimer: 0,
+  isProcessing: false
 };
 
 const elements = {
@@ -47,6 +46,11 @@ const elements = {
   previewImage: document.querySelector("#previewImage"),
   rotateButton: document.querySelector("#rotateButton"),
   batchText: document.querySelector("#batchText"),
+  prevButton: document.querySelector("#prevButton"),
+  nextButton: document.querySelector("#nextButton"),
+  batchSummary: document.querySelector("#batchSummary"),
+  batchList: document.querySelector("#batchList"),
+  includeUploadInput: document.querySelector("#includeUploadInput"),
   ocrButton: document.querySelector("#ocrButton"),
   uploadButton: document.querySelector("#uploadButton"),
   retryButton: document.querySelector("#retryButton"),
@@ -62,6 +66,8 @@ const elements = {
   categoryShortcuts: document.querySelector("#categoryShortcuts"),
   usageMajorText: document.querySelector("#usageMajorText"),
   paymentMethodInput: document.querySelector("#paymentMethodInput"),
+  cardOwnerField: document.querySelector("#cardOwnerField"),
+  cardOwnerInput: document.querySelector("#cardOwnerInput"),
   paymentNotice: document.querySelector("#paymentNotice"),
   usageInput: document.querySelector("#usageInput"),
   rawTextInput: document.querySelector("#rawTextInput"),
@@ -83,28 +89,37 @@ function init() {
   elements.cameraInput.addEventListener("change", handleFileSelection);
   elements.albumInput.addEventListener("change", handleFileSelection);
   elements.rotateButton.addEventListener("click", rotateCurrentReceipt);
-  elements.ocrButton.addEventListener("click", runOcr);
-  elements.uploadButton.addEventListener("click", uploadCurrentReceipt);
+  elements.prevButton.addEventListener("click", () => moveCurrentReceipt(-1));
+  elements.nextButton.addEventListener("click", () => moveCurrentReceipt(1));
+  elements.includeUploadInput.addEventListener("change", () => {
+    const item = getCurrentItem();
+    if (item) {
+      item.selectedForUpload = elements.includeUploadInput.checked;
+      updateBatchUi();
+      updateActions();
+    }
+  });
+  elements.ocrButton.addEventListener("click", analyzeAllReceipts);
+  elements.uploadButton.addEventListener("click", uploadCheckedReceipts);
   elements.retryButton.addEventListener("click", retryQueuedUploads);
-  elements.form.addEventListener("input", updateActions);
-  elements.usageInput.addEventListener("input", updateActions);
+  elements.form.addEventListener("input", handleFormInput);
+  elements.usageInput.addEventListener("input", handleFormInput);
   elements.categoryInput.addEventListener("change", handleCategoryChange);
   elements.paymentMethodInput.addEventListener("change", handlePaymentMethodChange);
+  elements.cardOwnerInput.addEventListener("input", handleFormInput);
   elements.feedbackCloseButton.addEventListener("click", hideFeedback);
 
   registerServiceWorker();
   handleCategoryChange();
   handlePaymentMethodChange();
   updateQueueCount();
+  updateBatchUi();
   updateActions();
   initImprovementCapture();
 }
 
 function ensureDeviceId() {
-  if (localStorage.getItem(STORAGE_KEYS.deviceId)) {
-    return;
-  }
-
+  if (localStorage.getItem(STORAGE_KEYS.deviceId)) return;
   const id = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   localStorage.setItem(STORAGE_KEYS.deviceId, id);
 }
@@ -115,196 +130,308 @@ function removeLegacyDeviceHistory() {
 
 async function handleFileSelection(event) {
   const files = Array.from(event.target.files || []);
-  if (files.length === 0) {
-    return;
-  }
+  if (files.length === 0) return;
 
   clearPreviewUrl();
-  state.items = files.map((file) => ({
-    originalFile: file,
-    normalizedFile: null,
-    rotation: 0
-  }));
+  state.items = files.map(createReceiptItem);
   state.currentIndex = 0;
-
-  await loadCurrentReceipt();
   event.target.value = "";
-  await runOcr();
+  await showCurrentReceipt();
+  await analyzeAllReceipts();
 }
 
-async function loadCurrentReceipt(options = {}) {
-  const item = state.items[state.currentIndex];
+function createReceiptItem(file, index) {
+  return {
+    id: `${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+    originalFile: file,
+    normalizedFile: null,
+    rotation: 0,
+    receipt: createEmptyReceipt(),
+    usageContent: "",
+    paymentMethod: "card",
+    cardOwnerName: "",
+    selectedForUpload: true,
+    attachmentId: "",
+    capturedAt: new Date().toISOString(),
+    status: "pending",
+    error: ""
+  };
+}
+
+function createEmptyReceipt() {
+  return {
+    merchant: "",
+    purchasedAt: "",
+    totalAmount: "",
+    taxAmount: "",
+    currency: "KRW",
+    category: DEFAULT_SUBCATEGORY,
+    paymentMethod: "card",
+    cardLast4: "",
+    rawText: ""
+  };
+}
+
+async function showCurrentReceipt() {
+  const item = getCurrentItem();
   if (!item) {
     clearAfterUpload();
     return;
   }
 
   clearPreviewUrl();
-  setStatus("영수증 이미지를 정리하는 중입니다.");
+  setStatus("영수증 이미지를 준비하는 중입니다.");
 
   try {
-    item.normalizedFile = await normalizeReceiptImage(item.originalFile, item.rotation);
+    item.normalizedFile = item.normalizedFile || await normalizeReceiptImage(item.originalFile, item.rotation);
   } catch (error) {
     console.warn("Image normalization failed", error);
     item.normalizedFile = item.originalFile;
   }
 
-  state.selectedFile = item.normalizedFile;
   state.previewUrl = URL.createObjectURL(item.normalizedFile);
-  state.attachmentId = "";
-  state.capturedAt = new Date().toISOString();
-
   elements.previewImage.src = state.previewUrl;
   elements.previewImage.hidden = false;
   elements.rotateButton.disabled = false;
-
-  if (!options.preserveFields) {
-    clearReceiptFields();
-    elements.usageInput.value = "";
-  }
-
-  updateBatchText();
-  setStatus(state.items.length > 1 ? "여러 장이 선택되었습니다. 한 장씩 확인해 주세요." : "영수증이 선택되었습니다.");
+  fillReceiptFields(item.receipt);
+  elements.usageInput.value = item.usageContent;
+  setSelectValue(elements.paymentMethodInput, item.paymentMethod || item.receipt.paymentMethod || "card");
+  elements.cardOwnerInput.value = item.cardOwnerName || "";
+  elements.includeUploadInput.checked = item.selectedForUpload;
+  elements.includeUploadInput.disabled = false;
+  handleCategoryChange();
+  handlePaymentMethodChange();
+  updateBatchUi();
   updateActions();
 }
 
 async function rotateCurrentReceipt() {
-  const item = state.items[state.currentIndex];
-  if (!item) {
-    return;
-  }
+  const item = getCurrentItem();
+  if (!item) return;
 
+  saveCurrentItemFromFields();
   item.rotation = (item.rotation + 90) % 360;
-  await loadCurrentReceipt({ preserveFields: true });
-  setStatus("영수증 방향을 90도 회전했습니다.");
+  item.normalizedFile = null;
+  item.status = item.status === "uploaded" ? "uploaded" : "pending";
+  await showCurrentReceipt();
+  setStatus("영수증 방향을 90도 회전했습니다. 필요하면 전체 분석을 다시 눌러주세요.");
 }
 
-async function runOcr() {
-  if (!state.selectedFile) {
-    setStatus("먼저 영수증을 촬영하거나 앨범에서 선택해 주세요.");
+async function moveCurrentReceipt(direction) {
+  if (state.isProcessing) return;
+  const nextIndex = state.currentIndex + direction;
+  if (nextIndex < 0 || nextIndex >= state.items.length) return;
+
+  saveCurrentItemFromFields();
+  state.currentIndex = nextIndex;
+  await showCurrentReceipt();
+}
+
+async function analyzeAllReceipts() {
+  if (state.items.length === 0) {
+    setStatus("먼저 영수증을 촬영하거나 사진앨범에서 선택해 주세요.");
     updateActions();
     return;
   }
 
-  elements.ocrButton.disabled = true;
-  setStatus("내용을 분석하는 중입니다.");
+  saveCurrentItemFromFields();
+  state.isProcessing = true;
+  updateActions();
+
+  const total = state.items.length;
+  let successCount = 0;
   showFeedback({
     type: "loading",
     title: "내용 분석 중",
-    message: "영수증 내용을 읽고 있습니다.\n잠시만 기다려 주세요.",
+    message: `${total}장 분석을 시작합니다.\n잠시만 기다려 주세요.`,
     closeable: false
   });
 
-  try {
-    const formData = new FormData();
-    formData.append("receipt", state.selectedFile);
-    formData.append("source", "receipt-ocr-pwa");
-    formData.append("workflow", "expense_approval");
-    formData.append("deviceId", getDeviceId());
-    formData.append("capturedAt", state.capturedAt);
-
-    const response = await fetch("/api/receipts/ocr", {
-      method: "POST",
-      body: formData
-    });
-
-    if (!response.ok) {
-      throw new Error(await getErrorMessage(response, `OCR failed with ${response.status}`));
-    }
-
-    const payload = await response.json();
-    const receipt = normalizeReceipt(payload);
-    state.attachmentId = payload.attachmentId || receipt.attachmentId || "";
-    fillReceiptFields(receipt);
-    setStatus("분석 결과가 반영되었습니다. 소분류와 결제 방식을 확인해 주세요.");
-    hideFeedback();
-  } catch (error) {
-    console.error(error);
-    const message = getOcrFailureMessage(error);
-    setStatus(message);
+  for (let index = 0; index < total; index += 1) {
+    state.currentIndex = index;
+    await showCurrentReceipt();
+    const item = state.items[index];
+    item.status = "analyzing";
+    item.error = "";
+    updateBatchUi();
+    setStatus(`${total}장 중 ${index + 1}번째 영수증을 분석하는 중입니다.`);
     showFeedback({
-      type: "error",
-      title: "분석 실패",
-      message,
-      closeable: true
+      type: "loading",
+      title: "내용 분석 중",
+      message: `${total}장 중 ${index + 1}번째 영수증을 읽고 있습니다.\n잠시만 기다려 주세요.`,
+      closeable: false
     });
-  } finally {
-    updateActions();
-  }
-}
 
-async function uploadCurrentReceipt() {
-  const receipt = buildReceiptPayload();
-
-  if (!hasMinimumReceiptFields(receipt)) {
-    setStatus("가맹점, 사용일, 총액, 지출 소분류를 모두 확인해 주세요.");
-    updateActions();
-    return;
+    try {
+      await analyzeReceiptItem(item);
+      item.status = "review";
+      successCount += 1;
+    } catch (error) {
+      console.error(error);
+      item.status = "error";
+      item.error = getOcrFailureMessage(error);
+    }
   }
 
-  elements.uploadButton.disabled = true;
-  setStatus("업로드 중입니다.");
-  showFeedback({
-    type: "loading",
-    title: "업로드 중",
-    message: "지출결의 대시보드로 보내고 있습니다.",
-    closeable: false
-  });
+  state.isProcessing = false;
+  state.currentIndex = firstReviewableIndex();
+  await showCurrentReceipt();
 
-  try {
-    await uploadReceipt(receipt);
-    rememberCategoryUse(receipt.category);
-    await advanceAfterUpload();
+  if (successCount === total) {
+    setStatus("모든 영수증 분석이 끝났습니다. 각 내용을 확인한 뒤 업로드할 항목만 체크해 주세요.");
     showFeedback({
       type: "success",
-      title: "업로드 완료",
-      message: "대시보드에 영수증이 등록되었습니다.",
+      title: "분석 완료",
+      message: "각 영수증 내용을 확인한 뒤 선택 업로드를 눌러주세요.",
       closeable: true,
       autoHideMs: 2200
     });
-  } catch (error) {
-    console.error(error);
-    queueReceipt(receipt);
-    const message = getUploadFailureMessage(error);
-    setStatus("업로드가 실패해 대기열에 저장되었습니다.");
+  } else if (successCount > 0) {
+    setStatus("일부 영수증 분석에 실패했습니다. 실패한 항목은 다시 촬영하거나 전체 분석을 다시 눌러주세요.");
     showFeedback({
       type: "error",
-      title: "업로드 실패 ❌",
-      message,
+      title: "일부 분석 실패",
+      message: `${successCount}장은 분석했고 ${total - successCount}장은 실패했습니다.`,
       closeable: true
     });
-  } finally {
-    updateQueueCount();
-    updateActions();
+  } else {
+    setStatus("분석에 실패했습니다. 서버 연동 설정과 이미지를 확인해 주세요.");
+    showFeedback({
+      type: "error",
+      title: "분석 실패",
+      message: "모든 영수증 분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.",
+      closeable: true
+    });
   }
+
+  updateBatchUi();
+  updateActions();
 }
 
-async function advanceAfterUpload() {
-  if (state.currentIndex >= 0 && state.currentIndex < state.items.length - 1) {
-    state.currentIndex += 1;
-    await loadCurrentReceipt();
-    setStatus("업로드되었습니다. 다음 영수증을 확인해 주세요.");
-    await runOcr();
+async function analyzeReceiptItem(item) {
+  item.normalizedFile = item.normalizedFile || await normalizeReceiptImage(item.originalFile, item.rotation);
+
+  const formData = new FormData();
+  formData.append("receipt", item.normalizedFile);
+  formData.append("source", "receipt-ocr-pwa");
+  formData.append("workflow", "expense_approval");
+  formData.append("deviceId", getDeviceId());
+  formData.append("capturedAt", item.capturedAt);
+
+  const response = await fetch("/api/receipts/ocr", {
+    method: "POST",
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, `OCR failed with ${response.status}`));
+  }
+
+  const payload = await response.json();
+  const receipt = normalizeReceipt(payload);
+  item.attachmentId = payload.attachmentId || receipt.attachmentId || "";
+  item.receipt = receipt;
+  item.paymentMethod = receipt.paymentMethod || item.paymentMethod || "card";
+  item.capturedAt = item.capturedAt || new Date().toISOString();
+}
+
+async function uploadCheckedReceipts() {
+  saveCurrentItemFromFields();
+  const selectedItems = state.items.filter((item) => item.selectedForUpload && item.status !== "uploaded");
+
+  if (selectedItems.length === 0) {
+    setStatus("업로드할 영수증을 하나 이상 체크해 주세요.");
+    updateActions();
     return;
   }
 
-  clearAfterUpload();
-  setStatus("대시보드에 업로드되었습니다.");
+  const invalidItem = selectedItems.find((item) => !hasMinimumReceiptFields(buildReceiptPayload(item)));
+  if (invalidItem) {
+    state.currentIndex = state.items.indexOf(invalidItem);
+    await showCurrentReceipt();
+    const message = getValidationMessage(buildReceiptPayload(invalidItem));
+    setStatus(message);
+    showFeedback({
+      type: "error",
+      title: "필수 항목 확인",
+      message,
+      closeable: true
+    });
+    return;
+  }
+
+  state.isProcessing = true;
+  updateActions();
+  showFeedback({
+    type: "loading",
+    title: "업로드 중",
+    message: `${selectedItems.length}장을 지출 결의 대시보드로 보내고 있습니다.`,
+    closeable: false
+  });
+
+  let uploadedCount = 0;
+  let failedCount = 0;
+
+  for (let index = 0; index < selectedItems.length; index += 1) {
+    const item = selectedItems[index];
+    state.currentIndex = state.items.indexOf(item);
+    await showCurrentReceipt();
+    setStatus(`${selectedItems.length}장 중 ${index + 1}번째 영수증을 업로드하는 중입니다.`);
+
+    const receipt = buildReceiptPayload(item);
+    try {
+      await uploadReceipt(receipt);
+      rememberCategoryUse(receipt.category);
+      item.status = "uploaded";
+      item.selectedForUpload = false;
+      uploadedCount += 1;
+    } catch (error) {
+      console.error(error);
+      queueReceipt(receipt);
+      item.status = "queued";
+      item.error = getUploadFailureMessage(error);
+      failedCount += 1;
+    }
+    updateBatchUi();
+  }
+
+  state.isProcessing = false;
+  updateQueueCount();
+  await showCurrentReceipt();
+  updateActions();
+
+  if (failedCount === 0) {
+    setStatus("선택한 영수증이 모두 업로드되었습니다.");
+    showFeedback({
+      type: "success",
+      title: "업로드 완료",
+      message: "지출 결의 대시보드에 영수증이 등록되었습니다.",
+      closeable: true,
+      autoHideMs: 2200
+    });
+  } else {
+    setStatus("일부 업로드에 실패해 대기열에 저장되었습니다.");
+    showFeedback({
+      type: "error",
+      title: "업로드 실패",
+      message: `${uploadedCount}장은 업로드했고 ${failedCount}장은 대기열에 저장했습니다.`,
+      closeable: true
+    });
+  }
 }
 
 async function retryQueuedUploads() {
   const queue = getQueue();
-
   if (queue.length === 0) {
-    setStatus("대기 항목이 없습니다.");
+    setStatus("대기 목록이 없습니다.");
     return;
   }
 
-  setStatus("대기 항목을 업로드 중입니다.");
+  setStatus("대기 목록을 업로드하는 중입니다.");
   showFeedback({
     type: "loading",
     title: "업로드 중",
-    message: "대기 항목을 다시 보내고 있습니다.",
+    message: "대기 목록을 다시 보내고 있습니다.",
     closeable: false
   });
 
@@ -321,20 +448,20 @@ async function retryQueuedUploads() {
   setQueue(remaining);
   updateQueueCount();
   if (remaining.length === 0) {
-    setStatus("대기 항목이 모두 업로드되었습니다.");
+    setStatus("대기 목록이 모두 업로드되었습니다.");
     showFeedback({
       type: "success",
       title: "업로드 완료",
-      message: "대기 항목이 모두 대시보드에 등록되었습니다.",
+      message: "대기 목록이 모두 대시보드에 등록되었습니다.",
       closeable: true,
       autoHideMs: 2200
     });
   } else {
-    setStatus("일부 항목이 아직 대기 중입니다.");
+    setStatus("일부 항목은 아직 대기 중입니다.");
     showFeedback({
       type: "error",
-      title: "업로드 실패 ❌",
-      message: "일부 항목은 아직 업로드되지 않았습니다. 네트워크 상태를 확인한 뒤 다시 눌러 주세요.",
+      title: "업로드 실패",
+      message: "일부 항목은 아직 업로드되지 않았습니다. 네트워크 상태를 확인하고 다시 눌러 주세요.",
       closeable: true
     });
   }
@@ -367,34 +494,17 @@ async function getErrorMessage(response, fallback) {
 
 function getOcrFailureMessage(error) {
   const message = error instanceof Error ? error.message : String(error);
-
-  if (message.includes("OpenAI API key")) {
-    return "분석에 실패했습니다. 관리자 OCR 키를 확인해 주세요.";
-  }
-
-  if (message.includes("receipt image is required")) {
-    return "영수증 이미지를 다시 선택해 주세요.";
-  }
-
-  if (message.includes("image could not be processed")) {
-    return "사진을 처리하지 못했습니다. 영수증을 화면에 꽉 차게 다시 촬영해 주세요.";
-  }
-
+  if (message.includes("OpenAI API key")) return "분석에 실패했습니다. 관리자 OCR 설정을 확인해 주세요.";
+  if (message.includes("receipt image is required")) return "영수증 이미지를 다시 선택해 주세요.";
+  if (message.includes("image could not be processed")) return "사진을 처리하지 못했습니다. 영수증을 화면에 꽉 차게 다시 촬영해 주세요.";
   return "분석에 실패했습니다. 서버 연동 설정을 확인해 주세요.";
 }
 
 function getUploadFailureMessage(error) {
   const message = error instanceof Error ? error.message : String(error);
-
-  if (message.includes("Invalid JSON")) {
-    return "업로드 데이터 전송에 실패했습니다. 앱을 새로고침한 뒤 다시 시도해 주세요.";
-  }
-
-  if (message.includes("expense_requests") || message.includes("column")) {
-    return "대시보드 지출결의 항목 연결을 확인해 주세요.";
-  }
-
-  return "업로드에 실패했습니다. 대기열에 저장했으니 잠시 뒤 다시 시도해 주세요.";
+  if (message.includes("Invalid JSON")) return "업로드 데이터 전송에 실패했습니다. 앱을 새로고침하고 다시 시도해 주세요.";
+  if (message.includes("expense_requests") || message.includes("column")) return "대시보드 지출 결의 항목 연결을 확인해 주세요.";
+  return "업로드에 실패했습니다. 대기열에 저장했으니 잠시 후 다시 시도해 주세요.";
 }
 
 async function normalizeReceiptImage(file, manualRotation) {
@@ -410,7 +520,6 @@ async function normalizeReceiptImage(file, manualRotation) {
 
   canvas.width = Math.round(orientedWidth * scale);
   canvas.height = Math.round(orientedHeight * scale);
-
   context.translate(canvas.width / 2, canvas.height / 2);
   context.rotate((rotation * Math.PI) / 180);
   context.drawImage(
@@ -422,9 +531,7 @@ async function normalizeReceiptImage(file, manualRotation) {
   );
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", RECEIPT_IMAGE_QUALITY));
-  if (!blob) {
-    return file;
-  }
+  if (!blob) return file;
 
   const baseName = file.name.replace(/\.[^.]+$/, "");
   return new File([blob], `${baseName}-receipt.jpg`, {
@@ -472,44 +579,77 @@ function normalizeReceipt(payload) {
     currency: receipt.currency || "KRW",
     category: normalizeSubcategory(receipt.category || DEFAULT_SUBCATEGORY),
     paymentMethod: normalizePaymentMethod(receipt.paymentMethod || receipt.payment_method || "card"),
+    cardLast4: receipt.cardLast4 || receipt.card_last4 || "",
     rawText: receipt.rawText || receipt.text || "",
     attachmentId: receipt.attachmentId || ""
   };
 }
 
 function fillReceiptFields(receipt) {
-  elements.merchantInput.value = receipt.merchant;
-  elements.dateInput.value = receipt.purchasedAt;
-  elements.totalInput.value = receipt.totalAmount;
-  elements.taxInput.value = receipt.taxAmount;
-  elements.currencyInput.value = receipt.currency;
+  elements.merchantInput.value = receipt.merchant || "";
+  elements.dateInput.value = receipt.purchasedAt || "";
+  elements.totalInput.value = receipt.totalAmount || "";
+  elements.taxInput.value = receipt.taxAmount || "";
+  elements.currencyInput.value = receipt.currency || "KRW";
   setSelectValue(elements.categoryInput, receipt.category || DEFAULT_SUBCATEGORY);
-  setSelectValue(elements.paymentMethodInput, normalizePaymentMethod(receipt.paymentMethod || "card"));
-  elements.rawTextInput.value = receipt.rawText;
-  handleCategoryChange();
-  handlePaymentMethodChange();
+  elements.rawTextInput.value = receipt.rawText || "";
 }
 
-function buildReceiptPayload() {
+function saveCurrentItemFromFields() {
+  const item = getCurrentItem();
+  if (!item) return;
+  item.receipt = {
+    ...getReceiptFields(),
+    cardLast4: item.receipt.cardLast4 || ""
+  };
+  item.usageContent = elements.usageInput.value.trim();
+  item.paymentMethod = elements.paymentMethodInput.value;
+  item.cardOwnerName = elements.cardOwnerInput.value.trim();
+  item.selectedForUpload = elements.includeUploadInput.checked;
+}
+
+function getReceiptFields() {
   return {
     merchant: elements.merchantInput.value.trim(),
     purchasedAt: elements.dateInput.value,
-    totalAmount: numberOrNull(elements.totalInput.value),
-    taxAmount: numberOrNull(elements.taxInput.value),
+    totalAmount: elements.totalInput.value,
+    taxAmount: elements.taxInput.value,
     currency: elements.currencyInput.value,
-    category: elements.categoryInput.value,
-    usageCategory: getUsageFromSubcategory(elements.categoryInput.value),
-    paymentMethod: elements.paymentMethodInput.value,
-    paymentMethodLabel: PAYMENT_METHOD_LABELS[elements.paymentMethodInput.value] || elements.paymentMethodInput.value,
-    usageContent: elements.usageInput.value.trim(),
-    rawText: elements.rawTextInput.value.trim(),
-    attachmentId: state.attachmentId,
+    category: elements.categoryInput.value || DEFAULT_SUBCATEGORY,
+    paymentMethod: elements.paymentMethodInput.value || "card",
+    rawText: elements.rawTextInput.value.trim()
+  };
+}
+
+function buildReceiptPayload(item = getCurrentItem()) {
+  const receipt = item?.receipt || getReceiptFields();
+  const paymentMethod = item?.paymentMethod || receipt.paymentMethod || elements.paymentMethodInput.value || "card";
+  const cardOwnerName = item?.cardOwnerName || "";
+  const category = normalizeSubcategory(receipt.category || DEFAULT_SUBCATEGORY);
+  const itemIndex = item ? state.items.indexOf(item) : state.currentIndex;
+
+  return {
+    merchant: String(receipt.merchant || "").trim(),
+    purchasedAt: receipt.purchasedAt || "",
+    totalAmount: numberOrNull(receipt.totalAmount),
+    taxAmount: numberOrNull(receipt.taxAmount),
+    currency: receipt.currency || "KRW",
+    category,
+    usageCategory: getUsageFromSubcategory(category),
+    paymentMethod,
+    paymentMethodLabel: PAYMENT_METHOD_LABELS[paymentMethod] || paymentMethod,
+    cardLast4: receipt.cardLast4 || "",
+    cardOwnerName,
+    submittedBy: paymentMethod === "personal_card" ? cardOwnerName : "",
+    usageContent: String(item?.usageContent ?? elements.usageInput.value).trim(),
+    rawText: String(receipt.rawText || "").trim(),
+    attachmentId: item?.attachmentId || "",
     source: "receipt-ocr-pwa",
     workflow: "expense_approval",
     deviceId: getDeviceId(),
-    batchIndex: state.currentIndex >= 0 ? state.currentIndex + 1 : null,
+    batchIndex: itemIndex >= 0 ? itemIndex + 1 : null,
     batchTotal: state.items.length || 1,
-    capturedAt: state.capturedAt || new Date().toISOString(),
+    capturedAt: item?.capturedAt || new Date().toISOString(),
     status: "confirmed"
   };
 }
@@ -519,6 +659,7 @@ function clearReceiptFields() {
   elements.currencyInput.value = "KRW";
   elements.categoryInput.value = DEFAULT_SUBCATEGORY;
   elements.paymentMethodInput.value = "card";
+  elements.cardOwnerInput.value = "";
   handleCategoryChange();
   handlePaymentMethodChange();
 }
@@ -527,9 +668,6 @@ function clearAfterUpload() {
   clearPreviewUrl();
   state.items = [];
   state.currentIndex = -1;
-  state.selectedFile = null;
-  state.attachmentId = "";
-  state.capturedAt = "";
   elements.cameraInput.value = "";
   elements.albumInput.value = "";
   elements.previewImage.hidden = true;
@@ -537,7 +675,11 @@ function clearAfterUpload() {
   elements.rotateButton.disabled = true;
   elements.usageInput.value = "";
   elements.batchText.textContent = "";
+  elements.includeUploadInput.checked = false;
+  elements.includeUploadInput.disabled = true;
   clearReceiptFields();
+  updateBatchUi();
+  updateActions();
 }
 
 function clearPreviewUrl() {
@@ -548,22 +690,86 @@ function clearPreviewUrl() {
 }
 
 function hasMinimumReceiptFields(receipt) {
-  return Boolean(receipt.merchant && receipt.purchasedAt && receipt.totalAmount !== null && receipt.category);
+  return Boolean(
+    receipt.merchant &&
+    receipt.purchasedAt &&
+    receipt.totalAmount !== null &&
+    receipt.category &&
+    receipt.usageContent &&
+    (receipt.paymentMethod !== "personal_card" || receipt.cardOwnerName)
+  );
+}
+
+function getValidationMessage(receipt) {
+  if (!receipt.merchant) return "가맹점을 확인해 주세요.";
+  if (!receipt.purchasedAt) return "사용일을 확인해 주세요.";
+  if (receipt.totalAmount === null) return "총액을 확인해 주세요.";
+  if (!receipt.category) return "지출 소분류를 확인해 주세요.";
+  if (!receipt.usageContent) return "사용 내용을 입력해 주세요.";
+  if (receipt.paymentMethod === "personal_card" && !receipt.cardOwnerName) return "개인카드 사용 직원 이름을 입력해 주세요.";
+  return "필수 항목을 확인해 주세요.";
 }
 
 function updateActions() {
-  const receipt = buildReceiptPayload();
-  elements.ocrButton.disabled = !state.selectedFile;
-  elements.uploadButton.disabled = !hasMinimumReceiptFields(receipt);
+  const hasItems = state.items.length > 0;
+  const selectedCount = state.items.filter((item) => item.selectedForUpload && item.status !== "uploaded").length;
+  elements.ocrButton.disabled = !hasItems || state.isProcessing;
+  elements.uploadButton.disabled = selectedCount === 0 || state.isProcessing;
+  elements.rotateButton.disabled = !getCurrentItem() || state.isProcessing;
+  elements.prevButton.disabled = state.currentIndex <= 0 || state.isProcessing;
+  elements.nextButton.disabled = state.currentIndex < 0 || state.currentIndex >= state.items.length - 1 || state.isProcessing;
 }
 
-function updateBatchText() {
-  if (state.items.length <= 1) {
-    elements.batchText.textContent = "";
-    return;
-  }
+function updateBatchUi() {
+  const total = state.items.length;
+  const selected = state.items.filter((item) => item.selectedForUpload && item.status !== "uploaded").length;
+  elements.batchSummary.textContent = total ? `${total}장 중 ${selected}장 업로드 선택` : "0장 선택";
+  elements.batchText.textContent = total > 1 && state.currentIndex >= 0 ? `${state.currentIndex + 1} / ${total}` : "";
+  elements.batchList.innerHTML = "";
 
-  elements.batchText.textContent = `${state.currentIndex + 1} / ${state.items.length}`;
+  state.items.forEach((item, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `batch-pill is-${item.status}`;
+    if (index === state.currentIndex) button.classList.add("is-active");
+    button.textContent = `${index + 1} ${getStatusLabel(item)}`;
+    button.addEventListener("click", async () => {
+      if (state.isProcessing) return;
+      saveCurrentItemFromFields();
+      state.currentIndex = index;
+      await showCurrentReceipt();
+    });
+    elements.batchList.append(button);
+  });
+}
+
+function getStatusLabel(item) {
+  const labels = {
+    pending: "대기",
+    analyzing: "분석중",
+    review: "확인",
+    uploaded: "완료",
+    queued: "대기열",
+    error: "실패"
+  };
+  return item.selectedForUpload || item.status === "uploaded" ? labels[item.status] || "확인" : "제외";
+}
+
+function handleFormInput() {
+  saveCurrentItemFromFields();
+  handleCategoryChange();
+  handlePaymentMethodChange();
+  updateBatchUi();
+  updateActions();
+}
+
+function getCurrentItem() {
+  return state.items[state.currentIndex] || null;
+}
+
+function firstReviewableIndex() {
+  const index = state.items.findIndex((item) => item.status === "review" || item.status === "error");
+  return index >= 0 ? index : 0;
 }
 
 function getDeviceId() {
@@ -621,12 +827,16 @@ function handleCategoryChange() {
 }
 
 function handlePaymentMethodChange() {
+  const isPersonal = elements.paymentMethodInput.value === "personal_card";
+  elements.cardOwnerField.classList.toggle("is-hidden", !isPersonal);
+  elements.cardOwnerInput.required = isPersonal;
+
   if (elements.paymentMethodInput.value === "transfer") {
     elements.paymentNotice.hidden = false;
     elements.paymentNotice.textContent = "계좌이체 항목은 지출결의에서 이체 필요 여부를 확인합니다.";
-  } else if (elements.paymentMethodInput.value === "personal_card") {
+  } else if (isPersonal) {
     elements.paymentNotice.hidden = false;
-    elements.paymentNotice.textContent = "개인카드 사용분은 월말 일괄 정산 항목으로 올라갑니다.";
+    elements.paymentNotice.textContent = "개인카드 사용분은 직원 이름을 함께 기록해 월말 정산 항목으로 올립니다.";
   } else {
     elements.paymentNotice.hidden = true;
     elements.paymentNotice.textContent = "";
@@ -670,9 +880,7 @@ function getQuickSubcategories(preferredSubcategory = "") {
 }
 
 function rememberCategoryUse(subcategory) {
-  if (!getAllSubcategories().has(subcategory)) {
-    return;
-  }
+  if (!getAllSubcategories().has(subcategory)) return;
 
   const stats = getCategoryStats();
   const current = stats[subcategory] || { count: 0, lastUsedAt: "" };
@@ -705,9 +913,7 @@ function updateCategoryShortcutState() {
 
 function getUsageFromSubcategory(subcategory) {
   for (const [major, subcategories] of Object.entries(EXPENSE_SUBCATEGORY_TREE)) {
-    if (subcategories.includes(subcategory)) {
-      return major;
-    }
+    if (subcategories.includes(subcategory)) return major;
   }
   return "";
 }
@@ -742,7 +948,7 @@ function setStatus(message) {
 function showFeedback({ type, title, message, closeable, autoHideMs }) {
   window.clearTimeout(state.feedbackTimer);
   elements.feedbackDialog.className = `feedback-dialog is-${type}`;
-  elements.feedbackIcon.textContent = type === "success" ? "✓" : type === "error" ? "!" : "";
+  elements.feedbackIcon.textContent = type === "success" ? "" : type === "error" ? "!" : "";
   elements.feedbackTitle.textContent = title;
   elements.feedbackMessage.textContent = message;
   elements.feedbackCloseButton.hidden = !closeable;
@@ -759,40 +965,26 @@ function hideFeedback() {
 }
 
 function toDateInputValue(value) {
-  if (!value) {
-    return "";
-  }
-
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return String(value).slice(0, 10);
-  }
-
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
   return date.toISOString().slice(0, 10);
 }
 
 function numberOrEmpty(value) {
-  if (value === null || value === undefined || value === "") {
-    return "";
-  }
-
+  if (value === null || value === undefined || value === "") return "";
   const number = Number(String(value).replace(/[^\d.-]/g, ""));
   return Number.isFinite(number) ? String(Math.round(number)) : "";
 }
 
 function numberOrNull(value) {
-  if (value === "") {
-    return null;
-  }
-
+  if (value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
 function registerServiceWorker() {
-  if (!("serviceWorker" in navigator)) {
-    return;
-  }
+  if (!("serviceWorker" in navigator)) return;
 
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("./service-worker.js").catch((error) => {
@@ -872,9 +1064,7 @@ function initImprovementCapture() {
   backdrop.addEventListener("click", close);
   modal.addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !backdrop.hidden) {
-      close();
-    }
+    if (event.key === "Escape" && !backdrop.hidden) close();
     if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "m") {
       event.preventDefault();
       if (backdrop.hidden) open();
@@ -925,6 +1115,7 @@ function saveImprovementRequest({ type, note }) {
       category: currentReceipt.category,
       usageCategory: currentReceipt.usageCategory,
       paymentMethod: currentReceipt.paymentMethod,
+      cardOwnerName: currentReceipt.cardOwnerName,
       capturedAt: currentReceipt.capturedAt
     },
     user_agent: navigator.userAgent,

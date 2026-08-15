@@ -91,10 +91,10 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
   const body = await req.json();
   const storagePath = cleanString(body.attachmentId);
   const deviceId = cleanString(body.deviceId);
+  const cardOwnerName = cleanString(body.cardOwnerName) || cleanString(body.submittedBy);
   const deviceOwner =
     await findDeviceOwner(supabase, deviceId)
     || cleanString(body.deviceOwner)
-    || cleanString(body.submittedBy)
     || "미등록 기기";
   await rememberDevice(supabase, deviceId, deviceOwner);
   let fileUrl: string | null = null;
@@ -111,6 +111,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
   const usage = mapUsage(subcategory);
   const payment = normalizePayment(body.paymentMethod, body.cardLast4);
   const transfer = getTransferState(payment);
+  const ownerLabel = payment.kind === "personal_card" ? cardOwnerName || deviceOwner : deviceOwner;
 
   const expensePayload = {
     used_at: usedAt,
@@ -132,7 +133,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     ocr_total_amount: amount || null,
     ocr_transaction_date: usedAt,
     is_recurring: false,
-    memo: buildMemo({ ...body, deviceOwner, deviceId }, usage, subcategory, payment)
+    memo: cleanString(body.memo)
   };
 
   const { data: expense, error: expenseError } = await insertWithColumnHealing(
@@ -151,7 +152,7 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     title: purpose,
     reason: "모바일 영수증 OCR 등록 확인",
     amount_or_impact: formatWon(amount),
-    owner_label: deviceOwner,
+    owner_label: ownerLabel,
     status: "검토 전",
     target_table: "expense_requests",
     target_id: expense?.id,
@@ -164,12 +165,12 @@ async function handleExpenseUpload(req: Request, supabase: ReturnType<typeof cre
     return json({ error: reviewError.message }, 500);
   }
 
-  return json({ id: expense?.id || null, status: "uploaded", deviceOwner, deviceId });
+  return json({ id: expense?.id || null, status: "uploaded", deviceOwner, ownerLabel, deviceId });
 }
 
 async function runOcr(storagePath: string, supabase: ReturnType<typeof createClient>) {
   const openAiKey = Deno.env.get("OPENAI_API_KEY");
-  const model = Deno.env.get("OCR_MODEL") || "gpt-4o-mini";
+  const model = Deno.env.get("OCR_MODEL") || "gpt-5.6";
 
   if (!openAiKey) {
     return normalizeReceiptResult({
@@ -205,7 +206,7 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
 카드번호 전체가 보여도 마지막 4자리만 card_last4에 넣으세요.
 `.trim();
 
-  const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+  const aiResponse = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${openAiKey}`,
@@ -213,18 +214,47 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
     },
     body: JSON.stringify({
       model,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: "You extract structured receipt data. Return JSON only." },
+      instructions: "You extract structured receipt data. Return JSON only.",
+      input: [
         {
           role: "user",
           content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: dataUrl } }
+            { type: "input_text", text: prompt },
+            { type: "input_image", image_url: dataUrl }
           ]
         }
       ],
-      temperature: 0
+      text: {
+        format: {
+          type: "json_schema",
+          name: "receipt_ocr",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "vendor_name",
+              "transaction_date",
+              "total_amount",
+              "supply_amount",
+              "vat_amount",
+              "card_last4",
+              "purpose",
+              "raw_text"
+            ],
+            properties: {
+              vendor_name: { type: ["string", "null"] },
+              transaction_date: { type: ["string", "null"], description: "YYYY-MM-DD or null" },
+              total_amount: { type: ["number", "null"] },
+              supply_amount: { type: ["number", "null"] },
+              vat_amount: { type: ["number", "null"] },
+              card_last4: { type: ["string", "null"] },
+              purpose: { type: ["string", "null"] },
+              raw_text: { type: ["string", "null"] }
+            }
+          }
+        }
+      }
     })
   });
 
@@ -241,36 +271,8 @@ async function runOcr(storagePath: string, supabase: ReturnType<typeof createCli
   }
 
   const result = await aiResponse.json();
-  const content = result.choices?.[0]?.message?.content || "{}";
+  const content = extractResponseText(result) || "{}";
   return normalizeReceiptResult(JSON.parse(content));
-}
-
-function buildMemo(
-  body: Record<string, unknown>,
-  usage: string,
-  subcategory: string,
-  payment: ReturnType<typeof normalizePayment>
-) {
-  const lines = [
-    `지출 대분류: ${usage}`,
-    `지출 소분류: ${subcategory}`,
-    `결제 방식: ${payment.label}`
-  ];
-  if (payment.cardLast4) {
-    lines.push(`카드 뒷자리: ${payment.cardLast4}`);
-  }
-  const deviceOwner = cleanString(body.deviceOwner) || cleanString(body.submittedBy);
-  const deviceId = cleanString(body.deviceId);
-  if (deviceOwner) lines.push(`업로드 기기 소유자: ${deviceOwner}`);
-  if (deviceId) lines.push(`기기 ID: ${deviceId}`);
-  if (payment.kind === "personal_card") {
-    lines.push("개인 카드 월말 일괄 정산 대상");
-  }
-  const userMemo = cleanString(body.memo) || cleanString(body.usageContent);
-  if (userMemo) {
-    lines.push("", userMemo);
-  }
-  return lines.join("\n");
 }
 
 function normalizeSubcategory(category: unknown) {
@@ -581,6 +583,28 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
     binary += String.fromCharCode(...chunk);
   }
   return btoa(binary);
+}
+
+function extractResponseText(result: Record<string, unknown>) {
+  if (typeof result.output_text === "string") {
+    return result.output_text;
+  }
+
+  const output = Array.isArray(result.output) ? result.output : [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = Array.isArray((item as Record<string, unknown>).content)
+      ? (item as Record<string, unknown>).content as Array<Record<string, unknown>>
+      : [];
+
+    for (const part of content) {
+      if (typeof part.text === "string") {
+        return part.text;
+      }
+    }
+  }
+
+  return null;
 }
 
 function normalizeReceiptResult(value: Record<string, unknown>) {
